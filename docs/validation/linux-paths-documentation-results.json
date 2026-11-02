@@ -1,0 +1,49 @@
+{
+  "validated_at_utc": "2026-11-02T17:22:40.168783+00:00",
+  "openapi_version": "3.1.0",
+  "manager_version": "26.11",
+  "formal_openapi_validation": true,
+  "documented_paths_match_handlers": 21,
+  "validated_request_response_examples": 105,
+  "documented_cli_subcommands": 14,
+  "cli_and_installer_help_flags_verified": [
+    "--admin-password-file",
+    "--adopt",
+    "--application-root",
+    "--bind",
+    "--ca",
+    "--certificate",
+    "--certificate-names",
+    "--data",
+    "--help",
+    "--no-restart",
+    "--npf-port",
+    "--package",
+    "--port",
+    "--private-key",
+    "--renew-certificate",
+    "--restart",
+    "--source-database",
+    "--source-stopped",
+    "--url",
+    "--version",
+    "--yes"
+  ],
+  "live_response_checks": [
+    "/api/login:200",
+    "/api/session:200",
+    "/api/status:200",
+    "/api/status:401",
+    "/api/download/application:200",
+    "/api/download/database:200",
+    "/api/download/configuration:200",
+    "/api/logout:401",
+    "/api/logout:200"
+  ],
+  "environment": "Remote disposable Debian QEMU guest",
+  "application_code_changed": true,
+  "document_sha256": {
+    "openapi.json": "75adb0eb840791c736180027735063d74f7c3e3b28a2b9182f8faadfc231f908",
+    "docs/CLI.md": "d57cbda51fbcdbde02452cba0ec7d265c0e4d7806f008125df15708299329cfe"
+  }
+}

@@ -1,0 +1,39 @@
+NPF Server Manager 26.11 installed. HTTPS port 5050.
+Trust certificate: /var/lib/NPF-Server-Manager/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+Failed to stop npf-manager.service: Unit npf-manager.service not loaded.
+Created symlink '/etc/systemd/system/multi-user.target.wants/npf-manager.service' → '/etc/systemd/system/npf-manager.service'.
+NPF Server Manager 26.11 installed. HTTPS port 5050.
+Trust certificate: /var/lib/NPF-Server-Manager/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+Failed to stop npf-manager.service: Unit npf-manager.service not loaded.
+Created symlink '/etc/systemd/system/multi-user.target.wants/npf-manager.service' → '/etc/systemd/system/npf-manager.service'.
+NPF Server Manager 26.11 installed. HTTPS port 5050.
+Trust certificate: /var/lib/NPF-Server-Manager/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+{
+  "installer_uninstall_checks": [
+    {
+      "entry_point": "installLinux.sh",
+      "installed_python_modules": 6,
+      "development_helpers_not_installed": true,
+      "noninteractive_confirmation_required": true,
+      "running_service_stopped_and_removed": true,
+      "application_and_manager_removed": true,
+      "database_configuration_backups_and_keys_removed": true,
+      "launcher_and_locator_removed": true,
+      "lab_installation_restored_after_verification": true
+    },
+    {
+      "entry_point": "installer.py",
+      "installed_python_modules": 6,
+      "development_helpers_not_installed": true,
+      "noninteractive_confirmation_required": true,
+      "running_service_stopped_and_removed": true,
+      "application_and_manager_removed": true,
+      "database_configuration_backups_and_keys_removed": true,
+      "launcher_and_locator_removed": true,
+      "lab_installation_restored_after_verification": true
+    }
+  ]
+}

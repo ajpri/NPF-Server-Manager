@@ -20,7 +20,7 @@ The fixtures are created in temporary guest directories and use their own applic
 
 ## Installed-system checks
 
-The acceptance runner targets the synthetic installation at `/opt/npf` and `/var/lib/npf`. It keeps guest evidence under `/home/tester/acceptance`. These are lab defaults, not product path restrictions. Run from the source checkout, as root in a disposable guest:
+The acceptance runner targets the synthetic installation at `/opt/NPF-Server-Manager` and `/var/lib/NPF-Server-Manager`. It keeps guest evidence under `/home/tester/acceptance`. These are lab defaults, not product path restrictions. Run from the source checkout, as root in a disposable guest:
 
 ```sh
 sudo python3 tests/acceptance.py install

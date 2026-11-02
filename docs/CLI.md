@@ -45,7 +45,7 @@ Put global options **before** the subcommand. Put subcommand flags after its nam
 | --- | --- |
 | `-h`, `--help` | Print global help and exit. Every subcommand also accepts these flags. |
 | `--version` | Print the manager version, currently `26.11`, and exit. |
-| `--data DIRECTORY` | Select local manager settings/data. Default comes from `/etc/npf-manager.json` on Linux or `%PROGRAMDATA%\NPF-Server-Manager.json` on Windows, falling back to `/var/lib/npf` or `%PROGRAMDATA%\NPF-Server-Manager`. This is not an NPF data export destination. |
+| `--data DIRECTORY` | Select local manager settings/data. Default comes from `/etc/npf-manager.json` on Linux or `%PROGRAMDATA%\NPF-Server-Manager.json` on Windows, falling back to `/var/lib/NPF-Server-Manager` or `%PROGRAMDATA%\NPF-Server-Manager`. This is not an NPF data export destination. |
 | `--url HTTPS_URL` | Override the API base URL. Default is `https://127.0.0.1:PORT`, using the selected settings' port or `5050`. Plain HTTP is rejected. |
 | `--ca PEM_FILE` | Override the trusted certificate/CA PEM. Otherwise use the selected settings' certificate, or system trust when none is configured. Certificate identity must match the URL hostname/IP. There is no insecure TLS bypass option. |
 
@@ -268,8 +268,8 @@ Windows: `installWindows.bat [install|update] [OPTIONS]` or `installWindows.ps1 
 | Option | Purpose |
 | --- | --- |
 | `-h`, `--help` | Show installer parser help. The Python entry point avoids wrapper prerequisite provisioning when merely inspecting help. |
-| `--application-root DIRECTORY` | Initial application/code location; defaults `/opt/npf` or `%ProgramFiles%\NPF-Server-Manager`. Must be a separate tree from persistent data. Existing installations reject a different application root. |
-| `--data DIRECTORY` | Persistent settings/database/backups location, discovered from the locator by default, then `/var/lib/npf` or `%PROGRAMDATA%\NPF-Server-Manager`. Use the existing selected location on reruns. |
+| `--application-root DIRECTORY` | Initial application/code location; defaults `/opt/NPF-Server-Manager` or `%ProgramFiles%\NPF-Server-Manager`. Must be a separate tree from persistent data. Existing installations reject a different application root. |
+| `--data DIRECTORY` | Persistent settings/database/backups location, discovered from the locator by default, then `/var/lib/NPF-Server-Manager` or `%PROGRAMDATA%\NPF-Server-Manager`. Use the existing selected location on reruns. |
 | `--package ZIP` | Local initial NPF package when not downloading the stable GitHub release. Does not update NPF on a completed-installation rerun. |
 | `--adopt DIRECTORY` | Copy an existing initialized NPF installation into the managed layout. Preserve original files. |
 | `--source-database FILE` | Actual source database for adoption; defaults to `ADOPT_DIRECTORY/finance.db`. |

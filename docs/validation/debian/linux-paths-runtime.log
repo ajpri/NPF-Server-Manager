@@ -1,0 +1,8 @@
+intentional-stop Survives manager service restart.
+password-reset Old session rejected; service can read new hash.
+transfers Full DB exported/replaced; config applied without restart; backup copies retained.
+cli Authenticated status/database+config download/config stage+replace passed.
+updates-and-rollback Three synthetic version updates; current + 2 history; bundled files ignored; matching-database rollback passed.
+crash-limit {'delays_seconds': [11.28, 11.29, 11.28], 'state': 'failed after third restart and fourth crash'}
+explicit-start-reset Restart attempts reset.
+pre-reboot NPF intentionally stopped; next boot must start it.

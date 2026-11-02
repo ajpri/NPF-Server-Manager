@@ -28,12 +28,22 @@ NPF_TEST_ZIP=/home/tester/npf-public.zip python3 -m unittest discover -s tests -
 
 | Distribution | Tests | Result | Final duration |
 | --- | --- | --- | --- |
-| Debian 13 | 39 | All passed | 38.041 seconds |
-| Fedora 44 | 39 | All passed | 41.109 seconds |
+| Debian 13 | 39 | All passed | 37.979 seconds |
+| Fedora 44 | 39 | All passed | 41.132 seconds |
 
 Logs: [Debian](validation/debian/tests.log), [Fedora](validation/fedora/tests.log).
 
 The suite verifies password boundaries and reset, multi-ledger/credential-bearing SQLite snapshots, hot-journal recovery, read-only candidate validation, staged configuration/database flows, mandatory replacement backups, invalid/newer-schema database rejection, unsafe ZIP paths/links and extraction limits, busy locking, readiness and duplicate-start prevention, mandatory database backups, snapshot opt-out rejection, update failure restoration, deferred update verification, manual snapshot rollback and failed rollback restoration, interrupted-operation recovery/refusal, retention, supplied certificate validation, release checksum mismatch/success, persisted crash-failure state, API authentication/reset/CSRF, body limits, chunked-upload rejection, private-path denial, export cleanup, and private CLI export permissions, full application-package exports with multiple ledgers/password hashes/integration secrets/committed WAL data, explicit restart including upload-and-restart from stopped state, combined replacement of either/both files with one restart and two-file recovery, and uninstall privilege/registered-path/confirmation guards, and installer dispatch/exit-code propagation before prerequisite setup.
+
+## Linux directory alignment — November 2
+
+Pulled the finalized Windows work at `937c9c8`, then aligned Linux defaults with the same directory name: `/opt/NPF-Server-Manager` for application files and `/var/lib/NPF-Server-Manager` for persistent data. The `npf-manager` command, service/account names and locator remain unchanged. Registered/custom paths are preserved on reruns; no production migration or automatic relocation was added.
+
+Only the two disposable default-path Linux installations were replaced. Each old synthetic installation was uninstalled, then freshly installed by accepting the new default application/data prompts. Existing old default directories were verified absent. Both complete 39-test regression suites passed. Installed checks verified new settings/manifest paths, CLI discovery, launcher/systemd paths, service enablement, and running NPF: [structured results](validation/linux-directory-results.json).
+
+At the renamed paths, actual CLI/API exports and replacements, application updates, three-version retention, matching-database restore, crash retry limits and explicit restart passed on both distributions. Both installer uninstall entry points removed all managed application/data files and the test helper restored only the synthetic installations from its temporary archive. Reboot started NPF automatically; installer reruns retained the selected paths and intentional Stop state. Logs: [Debian installation](validation/debian/linux-paths-reinstall.log), [runtime](validation/debian/linux-paths-runtime.log), [reboot/rerun](validation/debian/linux-paths-boot.log), [uninstall](validation/debian/linux-paths-uninstall.log); [Fedora installation](validation/fedora/linux-paths-reinstall.log), [runtime](validation/fedora/linux-paths-runtime.log), [reboot/rerun](validation/fedora/linux-paths-boot.log), [uninstall](validation/fedora/linux-paths-uninstall.log).
+
+The Debian [browser workflows](validation/linux-paths-browser-results.json) and updated [API/CLI documentation checks](validation/linux-paths-documentation-results.json) passed using the new installation and its trusted newly generated certificate, with no JavaScript errors. Both services were healthy before the guests were shut down after evidence collection. No runtime tests or services ran locally. Windows code and its recorded verification were retained; Windows was not retested for this Linux-default change.
 
 ## Windows fixes branch verification — November 2
 

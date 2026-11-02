@@ -23,9 +23,16 @@ backups and version-associated restore.
   automatically relocate existing installations. The tested machine was migrated
   separately, retaining a compatibility junction for its registered Python.
 
-Linux application/data defaults remain `/opt/npf` and `/var/lib/npf`; Linux
-installer and service behavior are unchanged by the Windows registration/path
-changes. The REST API version and endpoints remain 26.11.
+### Linux
+
+- Align new installation directories with Windows: `/opt/NPF-Server-Manager`
+  for application files and `/var/lib/NPF-Server-Manager` for persistent data.
+- Update Linux acceptance helpers and documented defaults. Existing registered
+  paths and explicit custom locations are preserved; this change does not add
+  an automatic migration. Only disposable Linux test installations needed a
+  separate reinstall at the new defaults.
+- Keep the `npf-manager` command, service/account names and locator unchanged.
+  The REST API version and endpoints remain 26.11.
 
 ### Verification
 

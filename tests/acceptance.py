@@ -22,7 +22,7 @@ sys.path.insert(0,str(SOURCE))
 from cli import Client
 from manager import Manager, database_info, read_json, set_password, write_json
 
-DATA=Path('/var/lib/npf')
+DATA=Path('/var/lib/NPF-Server-Manager')
 ARTIFACTS=Path('/home/tester/acceptance')
 PASSWORD='Lab-Manager-Synthetic-26!'
 
@@ -82,11 +82,14 @@ def terminal_install(args, prompts, log_name):
 
 def install():
     file=ARTIFACTS/'password-input'; file.write_text(PASSWORD); file.chmod(0o600)
-    args=['sh',str(SOURCE/'installLinux.sh'),'--application-root','/opt/npf','--data',str(DATA),'--package','/home/tester/npf-public.zip','--port','5050','--admin-password-file',str(file),'--certificate-names','localhost,127.0.0.1,npf-test']
-    terminal_install(args, owner_prompts(), 'install.log')
+    args=['sh',str(SOURCE/'installLinux.sh'),'--package','/home/tester/npf-public.zip','--port','5050','--admin-password-file',str(file),'--certificate-names','localhost,127.0.0.1,npf-test']
+    terminal_install(args, [('Application directory', ''), ('Persistent data directory', '')]+owner_prompts(), 'install.log')
     file.unlink(missing_ok=True)
     client,value=wait_status('running')
     assert value['manager_version']=='26.11'
+    settings = read_json(DATA/'settings.json')
+    assert settings['application_root'] == '/opt/NPF-Server-Manager' and settings['database'] == str(DATA/'finance.db')
+    assert read_json(Path('/etc/npf-manager.json'))['data'] == str(DATA)
     record('installation',{'npf_version':value['version']['applicationVersion'],'service':subprocess.check_output(['systemctl','is-active','npf-manager'],text=True).strip()})
     return client
 
@@ -396,7 +399,7 @@ def github():
 
 
 def uninstall_check():
-    root=Path('/opt/npf'); data=Path('/var/lib/npf')
+    root=Path('/opt/NPF-Server-Manager'); data=Path('/var/lib/NPF-Server-Manager')
     source=SOURCE
     archive=Path('/home/tester/uninstall-lab-snapshot.tar.gz')
     result=Path('/home/tester/uninstall-results.json')
@@ -407,7 +410,7 @@ def uninstall_check():
     assert not (root/'manager/tools').exists() and not (root/'manager/tests').exists()
     subprocess.run(['systemctl','stop','npf-manager'],check=True)
     with tarfile.open(archive,'w:gz') as backup:
-        backup.add(root,arcname='opt/npf'); backup.add(data,arcname='var/lib/npf')
+        backup.add(root,arcname=str(root.relative_to('/'))); backup.add(data,arcname=str(data.relative_to('/')))
     archive.chmod(0o600)
     entries=[['sh',str(source/'installLinux.sh'),'uninstall'],[sys.executable,str(source/'installer.py'),'uninstall']]
     records=[]
@@ -438,7 +441,7 @@ def uninstall_check():
 
 
 def ownerless_install():
-    root, data = Path('/opt/npf-ownerless-test'), Path('/var/lib/npf-ownerless-test')
+    root, data = Path('/opt/NPF-Server-Manager-ownerless-test'), Path('/var/lib/NPF-Server-Manager-ownerless-test')
     assert not root.exists() and not data.exists(), 'Use fresh disposable test paths.'
     password_file = ARTIFACTS/'ownerless-password-input'
     password_file.write_text(PASSWORD); password_file.chmod(0o600)

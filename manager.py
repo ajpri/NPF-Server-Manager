@@ -26,7 +26,7 @@ HERE = Path(__file__).resolve().parent
 VERSION = (HERE/'VERSION').read_text(encoding='utf-8').strip()
 if not re.fullmatch(r'\d+\.\d+(?:\.\d+)*', VERSION):
     raise ValueError('VERSION must contain a numeric release number.')
-DEFAULT_DATA = Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'NPF-Server-Manager' if os.name == 'nt' else Path('/var/lib/npf')
+DEFAULT_DATA = Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'NPF-Server-Manager' if os.name == 'nt' else Path('/var/lib/NPF-Server-Manager')
 MAX_UPLOAD = 512 * 1024 * 1024
 MAX_EXTRACT = 2 * 1024 * 1024 * 1024
 

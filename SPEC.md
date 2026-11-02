@@ -26,7 +26,7 @@ Provide platform entry points named `installLinux` and `installWindows`, with ap
 
 | Platform | Default application location | Default persistent data/backup location |
 | --- | --- | --- |
-| Linux | `/opt/npf` | `/var/lib/npf` |
+| Linux | `/opt/NPF-Server-Manager` | `/var/lib/NPF-Server-Manager` |
 | Windows 11 | `C:\Program Files\NPF-Server-Manager` | `C:\ProgramData\NPF-Server-Manager` |
 
 Offer these defaults and allow custom locations. Persist paths for services, CLI operations, installer reruns, updates, and recovery. Separate manager settings and secrets from NPF packages, databases, configuration, and version history.

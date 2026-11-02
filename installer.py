@@ -341,7 +341,7 @@ def main():
         if args.application_root and args.application_root.resolve()!=root: raise ManagerError('Installer updates retain selected paths; migration is a separate operation.')
         settings=existing
     else:
-        root=(args.application_root or Path(ask('Application directory',str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'NPF-Server-Manager') if os.name=='nt' else '/opt/npf'))).resolve()
+        root=(args.application_root or Path(ask('Application directory',str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'NPF-Server-Manager') if os.name=='nt' else '/opt/NPF-Server-Manager'))).resolve()
         if args.data is None:
             data=Path(ask('Persistent data directory',str(data))).resolve()
             if (data/'settings.json').exists(): raise ManagerError('Selected data location already has settings; rerun with --data.')

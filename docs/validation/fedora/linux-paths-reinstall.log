@@ -1,0 +1,6 @@
+Removed '/etc/systemd/system/multi-user.target.wants/npf-manager.service'.
+Remove NPF Server Manager and No Part Finance, including ALL financial data, configuration, certificates and backups.
+Application: /opt/npf
+Data: /var/lib/npf
+NPF Server Manager, No Part Finance and all managed data have been removed.
+installation {'npf_version': '26.10.30', 'service': 'active'}

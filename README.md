@@ -116,3 +116,7 @@ Development checks live only under `tests/`: one regression suite, one acceptanc
 See [SPEC.md](SPEC.md) for acceptance requirements, [Linux results](docs/TEST-RESULTS.md) for recorded validation, and [Windows checklist](docs/WINDOWS-CHECKLIST.md) for pending manual testing. [Desktop screenshot](docs/screenshots/manager-26.11.png) and [mobile screenshot](docs/screenshots/manager-26.11-mobile.png) show the actual single-file UI with synthetic test state. Do not run tests on the local development computer. Run `python3 -m unittest discover -s tests -v` only inside disposable remote Debian/Fedora QEMU guests, with `NPF_TEST_ZIP` pointing at a public application-only release package. Runtime verification uses synthetic financial data only. Remote host/SSH details are deliberately excluded from this project documentation.
 
 Runtime release numbers come from `VERSION`, including CLI output, the web page and service descriptions. When preparing a release, update that file and the release-specific documentation/OpenAPI metadata together.
+
+## License
+
+NPF Server Manager is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).

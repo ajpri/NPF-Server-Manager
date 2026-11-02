@@ -1,0 +1,2 @@
+manager-update-failure Broken candidate manager rejected; previous service restored; NPF active version, password and certificate preserved.
+actual-snapshot-rollback Outgoing snapshot associated with history; snapshot rollback returns to original active version.

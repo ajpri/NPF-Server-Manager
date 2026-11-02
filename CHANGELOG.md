@@ -6,6 +6,12 @@ NPF Server Manager installs, supervises and updates one No Part Finance
 installation, with an authenticated HTTPS manager, local CLI, full database
 backups and version-associated restore.
 
+### NPF server integration
+
+- Use NPF 26.11's Waitress lifecycle and application serving settings, with private instance-verified readiness and common shutdown handling.
+- Follow the configured NPF port for new installs; retain existing stored overrides and provide --npf-port auto to clear one. Report the verified NPF listener in status/CLI/UI; keep manager HTTPS separate.
+- Preserve explicit older-release compatibility and matching-database recovery; reject incomplete native helper contracts rather than silently downgrading a failed Waitress launch.
+
 ### Windows
 
 - Use `C:\Program Files\NPF-Server-Manager` for application files and

@@ -2,7 +2,7 @@
 
 Version: **26.11**.
 
-Status: Release specification for version 26.11. Tested on Debian 13, Fedora 44 and Windows 11 x64 build 26200. Recorded coverage and limitations are in [Linux results](docs/TEST-RESULTS.md) and [Windows results](docs/WINDOWS-TEST-RESULTS.md); see [release notes](CHANGELOG.md) for this release's changes.
+Status: Public release specification for version 26.11 (not a prerelease). Tested on Debian 13, Fedora 44 and Windows 11 x64 build 26200. Recorded coverage and limitations are in [Linux results](docs/TEST-RESULTS.md) and [Windows results](docs/WINDOWS-TEST-RESULTS.md); see [release notes](CHANGELOG.md) for this release's changes.
 
 ## 1. Purpose and scope
 
@@ -204,6 +204,15 @@ Provide `npf-manager uninstall` on Linux and Windows, requiring local root/Admin
 ### Source organization
 
 Keep six application Python modules: manager.py, server.py, cli.py, installer.py, npf_bridge.py and windows_service.py. Installation and uninstallation share installer.py; NPF subprocess and Windows Service entry points stay separate. Windows also installs uninstallWindows.ps1 for the installed-apps elevation/confirmation flow. All development checks live under tests/: the Linux regression suite, one phased remote acceptance runner, one browser/screenshot helper and the focused Windows smoke helper. Do not ship test helpers with the installed application. Single-file CLI/API replacements and combined web uploads share the same validation, full-backup and recovery implementation, preserving their explicit restart choices.
+
+### NPF HTTP backend and endpoint contract
+
+- Use NPF 26.11's native Waitress lifecycle helpers with the original Flask object and a readiness wrapper around its existing WSGI handler. Preserve NPF's trusted-proxy and request-limit configuration and financial/authentication behavior. Terminal Owner setup does not start a second HTTP server.
+- Resolve one endpoint from NPF's own configuration loader. An explicit manager NPF-port override wins; otherwise use platform.conf serverPort/default 5000. New installs follow configuration; stored older numeric ports remain overrides until an explicit --npf-port auto. Honor listenAddress, normalize localhost, and reject nonlocal/invalid IPv4 addresses and manager-port collisions. Linux low-port capability changes require local installer elevation.
+- Use the resolved endpoint consistently for validation, adoption checks, serving, readiness and reported status. Report the last verified endpoint/backend/source in npf_listener; pending configuration does not replace runtime status until successful restart.
+- Keep readiness private: per-launch request secret, same-host socket peer checked before proxy processing, rejection of forwarding headers, response instance/version/schema/endpoint verification, and proxy-free supervisor requests. A specific-interface listener must not require accepting arbitrary LAN readiness peers.
+- Route signals and Windows stop-file requests into one cleanup path. Use native shutdown helpers on the control thread, preserve bounded forced termination, and clean bind/readiness failures without orphan listeners. A native/helper/dependency error must not silently downgrade to Werkzeug.
+- Preserve supported legacy installation/adoption/rollback using an explicitly reported compatibility backend for packages without Waitress/native helpers. Preserve active serving settings when legacy configuration formatters would hide them. Matching-database backups and recovery remain mandatory.
 
 ## 9. Shared implementation contracts
 

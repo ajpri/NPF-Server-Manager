@@ -13,7 +13,7 @@ The Linux verification helpers are:
 From the source directory in a guest:
 
 ```sh
-NPF_TEST_ZIP=/home/tester/npf-public.zip python3 -m unittest discover -s tests -v
+NPF_TEST_ZIP=/home/tester/npf-public.zip NPF_TEST_NEW_ZIP=/home/tester/npf-26.11-public.zip python3 -m unittest discover -s tests -v
 ```
 
 The fixtures are created in temporary guest directories and use their own application port. No real financial data is needed.
@@ -76,3 +76,11 @@ synthetic installation under the temporary directory. It verifies registration,
 update, command quoting, default-No cancellation, and cleanup of that fixture
 and registry entry while preserving unrelated files. It never uninstalls the
 real NPF installation.
+
+## Waitress integration matrix
+
+Keep the public 26.10.30 ZIP as NPF_TEST_ZIP and the verified public 26.11 ZIP as NPF_TEST_NEW_ZIP. Both are needed for the full regression/native matrix. The native class skips explicitly when the new package is absent. Tests exercise all/loopback/specific-interface binding, override precedence, invalid/nonlocal endpoints, private readiness and proxy bypass, native request limits/trusted forwarding, normal sessions/CSRF/ledger checks, stop-file cleanup, bind/readiness failure, failed native update recovery, and schema-31 to matching schema-30 rollback.
+
+Inside disposable guests only, `sudo env NPF_LAB_PACKAGE=/home/tester/npf-26.11-public.zip python3 tests/acceptance.py waitress` updates the synthetic service, switches its port mode explicitly to auto and checks real Waitress service bindings/restarts. The same package environment selects modern failure/interruption fixtures. It is a state-changing lab phase, not a production health check. For the installed manager browser workflows set NPF_LAB_PACKAGE to the new ZIP and NPF_EXPECT_BACKEND=waitress. Linux stop-file execution verifies shared shutdown logic; it does not establish Windows SCM/job behavior. Record Windows runtime acceptance separately.
+
+The `waitress-privileged` phase verifies that live low-port uploads are refused without mutation, then stops the synthetic manager, edits its canonical configuration locally, reruns the elevated installer and verifies port 81 under the npf identity. It restores the prior listener and removes the unused bind capability afterward.

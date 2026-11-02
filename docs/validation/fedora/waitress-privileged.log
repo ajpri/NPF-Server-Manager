@@ -1,0 +1,8 @@
+NPF Server Manager 26.11 installed. HTTPS port 5050.
+Trust certificate: /var/lib/NPF-Server-Manager/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+waitress-privileged Live low-port upload refused without mutation; stopped-service local configuration and elevated installer enabled NPF on port 81 under the npf service identity.
+NPF Server Manager 26.11 installed. HTTPS port 5050.
+Trust certificate: /var/lib/NPF-Server-Manager/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+waitress-privileged-restored Original listener restored and unused bind capability removed.

@@ -2,6 +2,22 @@
 
 Linux results recorded on 2026-11-01 (America/Chicago). Guest logs use UTC, so some entries are dated November 2. Subsequent actual Windows 11 verification is recorded separately in [Windows results](WINDOWS-TEST-RESULTS.md).
 
+## 26.11 Waitress integration verification — November 2
+
+Version 26.11 includes the fix for issue #1. Testing used the actual public NPF v26.11 ZIP (schema 31, upstream commit `593a60c9ffc7386456976e129f06409f47f9b795`) and the public v26.10.30 ZIP (schema 30) for legacy compatibility and matching-database rollback.
+
+The full 48-test regression suite passed in each disposable guest: Debian 13 in 71.613 seconds and Fedora 44 in 76.748 seconds. Native integration checks cover wildcard, loopback (including 127.0.0.2) and assigned-interface binding; configuration versus explicit-port precedence; invalid ports and nonlocal addresses; proxy-free readiness with per-launch secrets; missing/wrong secrets and forwarded-header rejection; graceful signal/stop-file shutdown and socket reuse; bind/readiness failure cleanup; native-helper failures without legacy fallback; NPF proxy policy and the actual Waitress request-size limit; authenticated NPF sessions, ledger isolation and CSRF; schema-30-to-31 updates, matching-schema rollback and failed-update recovery. See [Debian regression log](validation/debian/waitress-tests.log) and [Fedora regression log](validation/fedora/waitress-tests.log).
+
+Installed systemd checks on both distributions exercised actual NPF 26.11 through Waitress with automatic port selection, loopback/wildcard/assigned-interface binding and start/stop/restart. Live low-port configuration upload was rejected without changing the process or configuration. Stopping the service, changing the canonical configuration and rerunning the elevated installer enabled NPF on port 81 while retaining the `npf` service identity; restoring the original configuration removed the unused bind capability. Evidence: [Debian privileged port](validation/debian/waitress-privileged.log), [Fedora privileged port](validation/fedora/waitress-privileged.log).
+
+Both installed guests passed failed application update, manager SIGKILL during a journaled update, failed manager update and real snapshot rollback checks with the native release. Evidence: [Debian update failure](validation/debian/waitress-failure.log), [Debian interruption](validation/debian/waitress-interrupt.log), [Debian manager recovery](validation/debian/waitress-manager-recovery.log), [Fedora update failure](validation/fedora/waitress-failure.log), [Fedora interruption](validation/fedora/waitress-interrupt.log), [Fedora manager recovery](validation/fedora/waitress-manager-recovery.log).
+
+The Debian browser passed the existing authenticated download/upload/restart/restore and Owner-warning flows with verified HTTPS and no JavaScript errors, and checked the new Waitress listener display. [Browser evidence](validation/waitress-browser-results.json). Formal OpenAPI 3.1 validation passed: 21 paths, 105 examples, 14 CLI commands, installer flags and live authenticated API responses. [API/CLI evidence](validation/waitress-documentation-results.json). The documentation validator's `application_code_changed: false` means that validation itself did not edit application code; this follow-up does contain the implementation changes described above.
+
+Final source-byte comparison and native readiness passed for the installed service in [Debian](validation/debian/waitress-final-service.json) and [Fedora](validation/fedora/waitress-final-service.json). Both guests were then shut down and their QEMU processes confirmed stopped.
+
+All runtime checks ran in the remote disposable guests. Local checks were limited to source review, Python AST parsing, JSON parsing and whitespace checks. The shared Windows stop-file path was exercised in Linux; this change has **not** been runtime-tested under Windows Service Control Manager. Prior Windows results below describe the earlier build. Other historical acceptance scenarios were not all repeated for this fix.
+
 ## Environment
 
 All Linux runtime tests in this report ran in disposable x64 QEMU guests on the separate SSH-accessible Linux test computer. No Linux application, service, prerequisite installation, VM, or runtime test was run on the local development computer.

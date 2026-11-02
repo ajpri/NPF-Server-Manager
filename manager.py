@@ -283,7 +283,7 @@ class Manager:
                 owner_setup_required = None
         return {'manager_version': VERSION, 'npf': 'busy' if self.busy else (('running' if self.ready else 'starting') if running else ('failed' if self.failed else 'stopped')),
                 'operation': self.busy, 'active': self.state.get('active'), 'version': self.release_meta() if self.state.get('active') else None,
-                'result': self.state.get('result'), 'owner_setup_required': owner_setup_required, 'pending_configuration': self.state.get('pending_configuration', False),
+                'result': self.state.get('result'), 'npf_listener': self.state.get('npf_listener'), 'owner_setup_required': owner_setup_required, 'pending_configuration': self.state.get('pending_configuration', False),
                 'restart_attempts': self.retries, 'history': [self.history_item(x) for x in self.state['history']],
                 'staged': self.items('staged'), 'recovery': self.items('recovery')}
 
@@ -310,12 +310,25 @@ class Manager:
 
     def bridge(self, mode, *, release=None, database=None, config=None, timeout=90):
         item = release or self.state['active']
+        override = self.settings.get('npf_port')
         command = npf_command(self.release(item), HERE / 'npf_bridge.py', mode, self.app(item),
-                              database or self.database, config or self.app(item), self.settings.get('npf_port', 5000))
+                              database or self.database, config or self.app(item), 'auto' if override is None else override)
         completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
         if completed.returncode:
             raise ManagerError('NPF validation failed. Check package/database/configuration compatibility; live files were not used for validation.')
         return completed.stdout.decode().strip()
+
+    def listener(self, release=None, config=None):
+        endpoint = json.loads(self.bridge('describe', release=release, config=config or self.data))
+        self.check_listener(endpoint)
+        return endpoint
+
+    def check_listener(self, endpoint):
+        if endpoint['port'] == self.settings['port']:
+            raise ManagerError('NPF HTTP and manager HTTPS must use distinct ports.')
+        if (os.name != 'nt' and os.geteuid() != 0 and endpoint['port'] < 1024
+                and not self.settings.get('npf_bind_capability', self.settings['port'] < 1024 or (self.settings.get('npf_port') or 5000) < 1024)):
+            raise ManagerError('This NPF port requires a privileged bind. Set the configuration locally and rerun the installer to update service capabilities.')
 
     def validate_database(self, source, release=None):
         item = release or self.state['active']
@@ -333,7 +346,8 @@ class Manager:
     def validate_configuration(self, source, release=None):
         with tempfile.TemporaryDirectory(dir=self.data) as directory:
             shutil.copyfile(source, Path(directory) / 'platform.conf')
-            self.bridge('validate-config', release=release, config=directory)
+            endpoint = json.loads(self.bridge('validate-config', release=release, config=directory))
+            self.check_listener(endpoint)
 
     def start_process(self):
         if self.process and self.process.poll() is None:
@@ -343,28 +357,35 @@ class Manager:
         self.sync_configuration()
         recover_database(self.database)
         database_info(self.database)
+        endpoint = self.listener()
         self.rotate_log()
         self.process_log = self.log_path().open('ab', buffering=0)
         kwargs = {'start_new_session': True} if os.name != 'nt' else {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
-        command = npf_command(self.release(), HERE/'npf_bridge.py', 'run', self.app(), self.database, self.app(), self.settings.get('npf_port', 5000))
+        override = self.settings.get('npf_port')
+        command = npf_command(self.release(), HERE/'npf_bridge.py', 'run', self.app(), self.database, self.app(), 'auto' if override is None else override)
         self.readiness_token = secrets.token_hex(32)
         (self.data/'stop-child').unlink(missing_ok=True)
         environment = dict(os.environ, NPF_MANAGER_READINESS=self.readiness_token, NPF_MANAGER_STOP_FILE=str(self.data/'stop-child'))
         self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=self.process_log, stderr=subprocess.STDOUT, cwd=self.app(), env=environment, **kwargs)
         write_json(self.data/'child.json', {'pid': self.process.pid})
         self.started_at = time.monotonic()
+        probe = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        request = urllib.request.Request(
+            f'http://{endpoint["readiness_host"]}:{endpoint["port"]}/__npf_manager_ready',
+            headers={'X-NPF-Manager-Readiness': self.readiness_token})
         try:
             deadline = time.monotonic() + self.settings.get('startup_timeout', 60)
             while time.monotonic() < deadline:
                 if self.process.poll() is not None:
                     break
                 try:
-                    with urllib.request.urlopen(f'http://127.0.0.1:{self.settings.get("npf_port",5000)}/__npf_manager_ready', timeout=1) as response:
+                    with probe.open(request, timeout=1) as response:
                         health = json.load(response)
                     if (health.get('status') == 'ok' and health.get('manager_instance') == self.readiness_token and health.get('applicationVersion') == self.release_meta()['applicationVersion']
-                            and health.get('schemaVersion') == self.release_meta()['schemaVersion']):
+                            and health.get('schemaVersion') == self.release_meta()['schemaVersion'] and health.get('listener') == endpoint):
                         if self.process.poll() is not None:
                             break
+                        self.state['npf_listener'] = endpoint
                         self.state['pending_configuration'] = False
                         self.sync_configuration(False)
                         self.failed = False
@@ -656,6 +677,7 @@ class Manager:
         new = self.prepare(directory/'file',entry['origin'])
         try:
             self.validate_database(self.database,new)
+            self.listener(release=new)
             if (self.data/'platform.conf').exists():
                 self.validate_configuration(self.data/'platform.conf',new)
             self.stop_process()
@@ -703,6 +725,7 @@ class Manager:
         if not source.exists():
             raise ManagerError('No associated database snapshot.')
         self.validate_database(source,item)
+        self.listener(release=item)
         if (self.data/'platform.conf').exists():
             self.validate_configuration(self.data/'platform.conf',item)
         self.stop_process()

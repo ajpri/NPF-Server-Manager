@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright, expect
 inputs = Path('/home/tester/acceptance')
 artifacts = Path('/home/tester/browser-artifacts')
 artifacts.mkdir(exist_ok=True)
+package = os.environ.get('NPF_LAB_PACKAGE', '/home/tester/npf-public.zip')
 password = os.environ.get('NPF_LAB_PASSWORD', 'Lab-Manager-Synthetic-26!')
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True)
@@ -21,6 +22,8 @@ with sync_playwright() as p:
     page.get_by_role('button', name='Sign in', exact=True).click()
     expect(page.locator('#status')).to_contain_text('running')
     expect(page.locator('#owner-warning')).to_be_hidden()
+    if os.environ.get('NPF_EXPECT_BACKEND'):
+        expect(page.locator('#npf-listener')).to_contain_text(os.environ['NPF_EXPECT_BACKEND'])
     expect(page.locator('#versions tr')).to_have_count(4)
     page.get_by_role('button', name='Restart NPF', exact=True).click()
     expect(page.locator('#message')).to_have_text('NPF running.', timeout=60000)
@@ -45,7 +48,7 @@ with sync_playwright() as p:
         assert list(connection.iterdump()) == list(baseline.iterdump())
     # Cancel a validated ZIP: no separate stage screen and no live changes.
     page.once('dialog', lambda dialog: dialog.dismiss())
-    page.locator('#application-upload input[type=file]').set_input_files('/home/tester/npf-public.zip')
+    page.locator('#application-upload input[type=file]').set_input_files(package)
     page.get_by_role('button', name='Upload update', exact=True).click()
     expect(page.locator('#message')).to_have_text('Cancelled. Current files are unchanged.', timeout=60000)
     expect(page.locator('#status')).to_contain_text('running')
@@ -73,7 +76,7 @@ with sync_playwright() as p:
     assert page.locator('#files-upload button').count() == 1
     # Confirm the actual ZIP-update path as well, using the public application package.
     page.once('dialog', lambda dialog: dialog.accept())
-    page.locator('#application-upload input[type=file]').set_input_files('/home/tester/npf-public.zip')
+    page.locator('#application-upload input[type=file]').set_input_files(package)
     page.get_by_role('button', name='Upload update', exact=True).click()
     expect(page.locator('#message')).not_to_have_text('Uploading and validating…', timeout=60000)
     expect(page.locator('#message')).not_to_have_text('Applying…', timeout=180000)

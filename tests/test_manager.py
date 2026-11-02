@@ -700,4 +700,213 @@ os._exit(0)
             server.shutdown(); server.server_close(); thread.join()
 
 
+
+class WaitressIntegration(unittest.TestCase):
+    """Actual NPF 26.11 plus the older public release; disposable guest fixtures only."""
+    setUp = Operations.setUp
+    tearDown = Operations.tearDown
+    config = Operations.config
+
+    @classmethod
+    def setUpClass(cls):
+        source = os.environ.get('NPF_TEST_NEW_ZIP')
+        if not source:
+            raise unittest.SkipTest('NPF_TEST_NEW_ZIP selects the guest-only public NPF 26.11 fixture.')
+        with patch.dict(os.environ, {'NPF_TEST_ZIP': source}):
+            Operations.setUpClass.__func__(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        Operations.tearDownClass.__func__(cls)
+
+    def start(self, address='127.0.0.1', extra=''):
+        self.manager.settings['npf_port'] = None
+        atomic(self.data/'platform.conf', f'listenAddress = {address}\nserverPort = 15000\n'+extra)
+        self.manager.execute('start')
+        self.endpoint = self.manager.status()['npf_listener']
+        self.assertEqual(self.endpoint['backend'], 'waitress')
+        self.url = f'http://{self.endpoint["readiness_host"]}:15000'
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def test_bindings_private_readiness_and_proxy_bypass(self):
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+            route.connect(('192.0.2.1', 80))
+            address = route.getsockname()[0]
+        for binding in ['0.0.0.0', 'localhost', '127.0.0.2', address]:
+            with self.subTest(binding='specific-interface' if binding == address else binding):
+                with patch.dict(os.environ, {'http_proxy':'http://127.0.0.1:1', 'HTTP_PROXY':'http://127.0.0.1:1', 'no_proxy':'', 'NO_PROXY':''}):
+                    opener = self.start(binding)
+                self.assertEqual(self.manager.status()['npf'], 'running')
+                path = self.url+'/__npf_manager_ready'
+                for headers in [{}, {'X-NPF-Manager-Readiness':'wrong'},
+                                {'X-NPF-Manager-Readiness':self.manager.readiness_token,'X-Forwarded-For':'127.0.0.1'}]:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        opener.open(urllib.request.Request(path, headers=headers), timeout=3)
+                    self.assertEqual(caught.exception.code, 404); caught.exception.close()
+                with opener.open(urllib.request.Request(path, headers={'X-NPF-Manager-Readiness':self.manager.readiness_token}), timeout=3) as response:
+                    self.assertEqual(json.load(response)['listener'], self.endpoint)
+                    self.assertIn('waitress', response.headers['Server'].lower())
+                self.manager.execute('stop')
+
+    def test_override_validation_and_legacy_port_retention(self):
+        self.manager.settings['npf_port'] = 15000
+        atomic(self.data/'platform.conf', 'listenAddress = localhost\nserverPort = 15001\n')
+        endpoint = self.manager.listener()
+        self.assertEqual((endpoint['port'], endpoint['port_source']), (15000, 'manager-override'))
+        self.manager.settings['npf_port'] = None
+        self.assertEqual(self.manager.listener()['port'], 15001)
+        self.manager.settings['npf_port'] = 0
+        with self.assertRaises(ManagerError): self.manager.listener()
+        self.manager.settings['npf_port'] = None
+        with self.assertRaisesRegex(ManagerError, 'distinct'):
+            self.manager.validate_configuration(self.config('serverPort = 15050\n'))
+        for invalid in ['invalid', '192.0.2.99']:
+            with self.assertRaises(ManagerError):
+                self.manager.validate_configuration(self.config('listenAddress = '+invalid+'\n'))
+        self.manager.settings['npf_bind_capability'] = False
+        with patch('manager.os.geteuid', return_value=1000):
+            with self.assertRaisesRegex(ManagerError, 'privileged'):
+                self.manager.check_listener(dict(port=80))
+
+    def test_stop_file_cleanup_and_repeated_restart(self):
+        import socket
+        self.start()
+        for _ in range(2):
+            self.manager.execute('restart')
+        process = self.manager.process
+        atomic(self.data/'stop-child', 'stop')
+        self.assertEqual(process.wait(timeout=15), 0)
+        self.manager.stop_process()
+        with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(('127.0.0.1', 15000))
+
+    def test_bind_and_readiness_failures_leave_no_listener(self):
+        import socket
+        self.manager.settings['npf_port'] = 15000
+        with socket.socket() as occupied:
+            occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            occupied.bind(('0.0.0.0', 15000)); occupied.listen()
+            with self.assertRaises(ManagerError): self.manager.execute('start')
+            self.assertIsNone(self.manager.process)
+            self.assertFalse((self.data/'child.json').exists())
+        self.manager.settings['startup_timeout'] = 1
+        failing = unittest.mock.Mock()
+        failing.open.side_effect = OSError('Synthetic failed readiness')
+        with patch('manager.urllib.request.build_opener', return_value=failing):
+            with self.assertRaises(ManagerError): self.manager.execute('start')
+        self.assertIsNone(self.manager.process)
+        with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(('0.0.0.0', 15000))
+
+    def test_native_failure_never_falls_back(self):
+        application = self.manager.app()/'app.py'
+        application.write_text(application.read_text()+"\ndef createHttpServer(*args, **kwargs):\n    raise RuntimeError('Synthetic native serving failure')\n")
+        self.assertEqual(self.manager.listener()['backend'], 'waitress')
+        with self.assertRaises(ManagerError): self.manager.execute('start')
+        self.assertNotIn('Compatibility backend:', self.manager.log_path().read_text())
+        self.assertIsNone(self.manager.process)
+        application.write_text(application.read_text()+'\ncreateHttpServer = closeHttpServer = None\n')
+        with self.assertRaises(ManagerError): self.manager.listener()
+
+    def test_trusted_proxy_and_request_body_limit(self):
+        application = self.manager.app()/'app.py'
+        application.write_text(application.read_text()+'''
+_manager_fixture_create = createApp
+def createApp(*args, **kwargs):
+    application = _manager_fixture_create(*args, **kwargs)
+    previous = application.wsgi_app.application
+    def fixture(environment, response):
+        if environment.get('PATH_INFO') == '/__proxy_fixture':
+            from werkzeug.wrappers import Response
+            return Response(json.dumps({'peer':environment.get('REMOTE_ADDR'), 'direct':environment.get('npf.directPeer'), 'scheme':environment.get('wsgi.url_scheme')}), content_type='application/json')(environment, response)
+        return previous(environment, response)
+    application.wsgi_app.application = fixture
+    return application
+''')
+        for trusted in [True, False]:
+            opener = self.start(extra='trustedProxyAddresses = '+('127.0.0.1' if trusted else '')+'\n')
+            headers = {'X-Forwarded-For':'203.0.113.9', 'X-Forwarded-Proto':'https'}
+            with opener.open(urllib.request.Request(self.url+'/__proxy_fixture', headers=headers), timeout=3) as response:
+                value = json.load(response)
+                self.assertEqual(value['direct'], '127.0.0.1')
+                self.assertEqual(value['peer'], '203.0.113.9' if trusted else '127.0.0.1')
+                self.assertEqual(value['scheme'], 'https' if trusted else 'http')
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                opener.open(urllib.request.Request(self.url+'/api/anything', data=b'x'*(1024*1024+1)), timeout=5)
+            self.assertEqual(caught.exception.code, 413); caught.exception.close()
+            self.manager.execute('stop')
+
+    def test_sessions_csrf_and_ledger_authorization(self):
+        import http.cookiejar, re, urllib.parse
+        self.start()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        with opener.open(self.url+'/sign-in') as response: page=response.read().decode()
+        token = re.search(r'name="csrfToken"\s+value="([^"]+)"', page).group(1)
+        data = urllib.parse.urlencode({'username':'synthetic-owner','password':'Synthetic-NPF-Test-26!','csrfToken':token}).encode()
+        with opener.open(self.url+'/sign-in', data=data) as response: self.assertEqual(response.status, 200)
+        with opener.open(self.url+'/api/session') as response: session=json.load(response)
+        with sqlite3.connect(self.manager.database) as db:
+            ledger = db.execute("SELECT ledgerId FROM ledgerAccess WHERE role='owner' LIMIT 1").fetchone()[0]
+        with opener.open(urllib.request.Request(self.url+'/api/accounts', headers={'X-Ledger-ID':str(ledger)})) as response:
+            self.assertEqual(response.status, 200)
+        for request in [urllib.request.Request(self.url+'/api/accounts', headers={'X-Ledger-ID':'999999999'}),
+                        urllib.request.Request(self.url+'/api/logout', data=b'{}', headers={'Content-Type':'application/json'})]:
+            with self.assertRaises(urllib.error.HTTPError) as caught: opener.open(request)
+            self.assertEqual(caught.exception.code, 403); caught.exception.close()
+        with opener.open(urllib.request.Request(self.url+'/api/logout', data=b'{}', headers={'Content-Type':'application/json','X-CSRF-Token':session['csrfToken']})) as response:
+            self.assertEqual(response.status, 200)
+
+    def test_upgrade_and_matching_database_rollback_to_legacy(self):
+        old = self.manager.prepare(Path(os.environ['NPF_TEST_ZIP']), 'public legacy fixture')
+        database = self.directory/'legacy.db'
+        self.manager.bridge('validate-db', release=old, database=database)
+        install_database(database, self.manager.database)
+        self.manager.state.update(active=old, history=[]); self.manager.save()
+        self.manager.settings['npf_port'] = None
+        configuration = 'listenAddress = 127.0.0.1\nserverPort = 15000\n'
+        atomic(self.data/'platform.conf', configuration)
+        self.manager.execute('start')
+        self.assertEqual(self.manager.status()['npf_listener']['backend'], 'werkzeug-legacy')
+        before = database_info(self.manager.database)['schema']
+        staged = self.manager.stage(Path(os.environ['NPF_TEST_NEW_ZIP']), 'application')
+        self.manager.execute('apply', {'id':staged['id']})
+        self.assertEqual(self.manager.status()['npf_listener']['backend'], 'waitress')
+        self.assertGreater(database_info(self.manager.database)['schema'], before)
+        configuration = (self.data/'platform.conf').read_text()
+        self.manager.execute('rollback', {'id':old, 'confirmed':True})
+        self.assertEqual(database_info(self.manager.database)['schema'], before)
+        self.assertEqual(self.manager.status()['npf_listener']['backend'], 'werkzeug-legacy')
+        self.assertEqual((self.data/'platform.conf').read_text(), configuration)
+        self.assertEqual(self.manager.status()['npf_listener']['listen_address'], '127.0.0.1')
+
+    def test_failed_waitress_update_restores_legacy_database_and_service(self):
+        old = self.manager.prepare(Path(os.environ['NPF_TEST_ZIP']), 'public legacy fixture')
+        database = self.directory/'legacy.db'
+        self.manager.bridge('validate-db', release=old, database=database)
+        install_database(database, self.manager.database)
+        self.manager.state.update(active=old, history=[]); self.manager.save()
+        self.manager.settings['npf_port'] = None
+        atomic(self.data/'platform.conf', 'listenAddress = 127.0.0.1\nserverPort = 15000\n')
+        self.manager.execute('start')
+        before = database_info(self.manager.database)['schema']
+        failing = self.directory/'failed-native.zip'
+        with zipfile.ZipFile(os.environ['NPF_TEST_NEW_ZIP']) as source, zipfile.ZipFile(failing, 'w', zipfile.ZIP_DEFLATED) as target:
+            for entry in source.infolist():
+                data = source.read(entry)
+                if entry.filename.endswith('/app.py'):
+                    data += b"\ndef createHttpServer(*args, **kwargs):\n    raise RuntimeError('Synthetic post-migration Waitress bind failure')\n"
+                target.writestr(entry, data)
+        staged = self.manager.stage(failing, 'application')
+        with self.assertRaises(ManagerError): self.manager.execute('apply', {'id':staged['id']})
+        self.assertEqual(self.manager.state['active'], old)
+        self.assertEqual(database_info(self.manager.database)['schema'], before)
+        self.assertEqual(self.manager.status()['npf'], 'running')
+        self.assertEqual(self.manager.status()['npf_listener']['backend'], 'werkzeug-legacy')
+        self.assertFalse((self.data/'operation.json').exists())
+        self.assertTrue((self.data/'staged'/staged['id']).exists())
+
+
 if __name__=='__main__': unittest.main()

@@ -291,7 +291,15 @@
                   ],
                   "staged": [],
                   "recovery": [],
-                  "owner_setup_required": false
+                  "owner_setup_required": false,
+                  "npf_listener": {
+                    "listen_address": "0.0.0.0",
+                    "port": 5000,
+                    "port_source": "manager-override",
+                    "backend": "werkzeug-legacy",
+                    "readiness_host": "127.0.0.1",
+                    "readiness_peer": "127.0.0.1"
+                  }
                 }
               }
             }
@@ -1696,6 +1704,16 @@
               "null"
             ],
             "description": "True when no NPF Owner is configured (or the database is not yet present), false when an Owner exists, null when the database cannot be read. NPF may run without an Owner; rerun the installer to create one before NPF sign-in."
+          },
+          "npf_listener": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NPFListener"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1710,7 +1728,8 @@
           "history",
           "staged",
           "recovery",
-          "owner_setup_required"
+          "owner_setup_required",
+          "npf_listener"
         ]
       },
       "ApplyRequest": {
@@ -1845,6 +1864,52 @@
           "id"
         ],
         "description": "Deletion is permanent. There is no separate confirmed field for this endpoint; submitting the request is the explicit deletion action."
+      },
+      "NPFListener": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Last successfully verified NPF HTTP endpoint. Pending configuration does not change this until successful startup. readiness_host/peer describe the local supervisor probe, not a public health API. The per-launch secret is never exposed.",
+        "properties": {
+          "listen_address": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "port_source": {
+            "type": "string",
+            "enum": [
+              "npf-configuration",
+              "manager-override"
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "waitress",
+              "werkzeug-legacy"
+            ]
+          },
+          "readiness_host": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "readiness_peer": {
+            "type": "string",
+            "format": "ipv4"
+          }
+        },
+        "required": [
+          "listen_address",
+          "port",
+          "port_source",
+          "backend",
+          "readiness_host",
+          "readiness_peer"
+        ]
       }
     },
     "responses": {

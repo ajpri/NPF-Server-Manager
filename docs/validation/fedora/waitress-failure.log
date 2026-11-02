@@ -1,0 +1,1 @@
+actual-failed-update Synthetic app changed schema to 999 then failed; outgoing code/config/full DB restored; staged input retained.

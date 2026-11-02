@@ -1,0 +1,1 @@
+interrupted-update-recovery {'mode': 'manager SIGKILL', 'previous_active_restored': True, 'database_valid': True, 'manager_available': True}

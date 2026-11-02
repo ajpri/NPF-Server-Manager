@@ -155,7 +155,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths='''+quoted(data)+' '+quoted(root/'releases')+'''\n\n[Install]\nWantedBy=multi-user.target\n'''
-        if settings['port'] < 1024 or settings.get('npf_port',5000) < 1024:
+        if settings['port'] < 1024 or settings.get('npf_bind_capability', (settings.get('npf_port') or 5000) < 1024):
             unit=unit.replace('UMask=0077','UMask=0077\nAmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE')
         # Custom locations under /home require explicit access rather than silently failing.
         if str(root).startswith('/home/') or str(data).startswith('/home/'):
@@ -310,7 +310,8 @@ def main():
     parser.add_argument('--source-stopped',action='store_true')
     parser.add_argument('--admin-password-file',type=Path,help='Protected input file for unattended installation; never a command-line password')
     parser.add_argument('--port',type=int)
-    parser.add_argument('--npf-port',type=int,default=5000)
+    parser.add_argument('--npf-port', type=lambda value: 'auto' if value == 'auto' else int(value),
+                        help='Explicit NPF HTTP port override, or auto to follow platform.conf (new-install default)')
     parser.add_argument('--bind',default='0.0.0.0')
     parser.add_argument('--certificate',type=Path)
     parser.add_argument('--private-key',type=Path)
@@ -339,15 +340,22 @@ def main():
     if existing:
         root=Path(existing['application_root'])
         if args.application_root and args.application_root.resolve()!=root: raise ManagerError('Installer updates retain selected paths; migration is a separate operation.')
-        settings=existing
+        settings=dict(existing)
     else:
         root=(args.application_root or Path(ask('Application directory',str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'NPF-Server-Manager') if os.name=='nt' else '/opt/NPF-Server-Manager'))).resolve()
         if args.data is None:
             data=Path(ask('Persistent data directory',str(data))).resolve()
             if (data/'settings.json').exists(): raise ManagerError('Selected data location already has settings; rerun with --data.')
         if root==data or root in data.parents or data in root.parents: raise ManagerError('Application and persistent-data locations must be separate directory trees.')
-        settings={'application_root':str(root),'database':str(data/'finance.db'),'port':args.port or int(ask('Management HTTPS port','5050')),'npf_port':args.npf_port,'bind':args.bind,'installed':False,'manager_version':VERSION}
-    if not 1<=settings['port']<=65535 or not 1<=settings['npf_port']<=65535 or settings['port']==settings['npf_port']: raise ManagerError('Choose distinct valid manager and NPF ports.')
+        settings={'application_root':str(root),'database':str(data/'finance.db'),'port':args.port or int(ask('Management HTTPS port','5050')),'npf_port':None if args.npf_port == 'auto' else args.npf_port,'bind':args.bind,'installed':False,'manager_version':VERSION}
+    if args.npf_port is not None:
+        settings['npf_port'] = None if args.npf_port == 'auto' else args.npf_port
+    if not 1<=settings['port']<=65535 or (settings.get('npf_port') is not None and (not 1<=settings['npf_port']<=65535 or settings['port']==settings['npf_port'])):
+        raise ManagerError('Choose distinct valid manager and NPF ports.')
+    if complete:
+        preflight = Manager(data)
+        preflight.settings = settings
+        preflight.listener()
     private_dir(data); root.mkdir(parents=True,exist_ok=True); private_dir(root/'releases')
     if os.name!='nt': root.chmod(0o755)
     old_code=root/'manager'
@@ -381,10 +389,6 @@ def main():
                     source=args.adopt.resolve(); db=(args.source_database or source/'finance.db').resolve()
                     if not args.source_stopped:
                         if ask('Stop the original NPF and disable its launcher. Confirm it is stopped (yes/no)','no')!='yes': raise ManagerError('Adoption cancelled; original must be stopped first.')
-                    # Refuse a running source on the configured port even when a flag was supplied.
-                    with socket.socket() as probe:
-                        probe.settimeout(1)
-                        if probe.connect_ex(('127.0.0.1',settings['npf_port']))==0: raise ManagerError('NPF port is in use; stop the source before adoption.')
                     database_info(db)
                     with tempfile.TemporaryDirectory(dir=data) as temp:
                         archive=Path(temp)/'adopt.zip'
@@ -395,6 +399,11 @@ def main():
                                 if entry.is_file() and not entry.is_symlink() and relative.parts[0] not in {'.venv','.git','logs','backups','packages'} and entry.suffix not in {'.db','.sqlite'}:
                                     out.write(entry,'No-Part-Finance/'+relative.as_posix())
                         item=manager.prepare(archive,'adopted local installation')
+                    endpoint = manager.listener(release=item, config=source)
+                    with socket.socket() as probe:
+                        probe.settimeout(1)
+                        if probe.connect_ex((endpoint['readiness_host'], endpoint['port'])) == 0:
+                            raise ManagerError('NPF port is in use; stop the source before adoption.')
                     snapshot(db,manager.database)
                     if (source/'platform.conf').exists(): atomic(data/'platform.conf',(source/'platform.conf').read_bytes())
                 else:
@@ -406,9 +415,11 @@ def main():
                             package=Path(ask('Local NPF ZIP path'))
                     item=manager.prepare(package,package_origin)
                 manager.state['active']=item; manager.save(); manager.sync_configuration()
+        endpoint = manager.listener()
+        settings['npf_bind_capability'] = settings['port'] < 1024 or endpoint['port'] < 1024
         needs_setup=not manager.database.exists() or not database_info(manager.database)['owner']
         if needs_setup:
-            command=npf_command(manager.release(),HERE/'npf_bridge.py','setup',manager.app(),manager.database,manager.app(),settings['npf_port'])
+            command=npf_command(manager.release(),HERE/'npf_bridge.py','setup',manager.app(),manager.database,manager.app(),settings.get('npf_port') or 'auto')
             subprocess.run(command,check=True)
             if not database_info(manager.database)['owner']:
                 print('No NPF Owner is set up. Services will start; rerun this installer to complete Owner setup before signing in to NPF.')

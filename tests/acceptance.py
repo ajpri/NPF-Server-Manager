@@ -8,6 +8,9 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
+import socket
+import urllib.request
 import select
 import shutil
 import signal
@@ -20,7 +23,7 @@ import zipfile
 SOURCE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(SOURCE))
 from cli import Client
-from manager import Manager, database_info, read_json, set_password, write_json
+from manager import Manager, ManagerError, atomic, database_info, read_json, set_password, write_json
 
 DATA=Path('/var/lib/NPF-Server-Manager')
 ARTIFACTS=Path('/home/tester/acceptance')
@@ -96,11 +99,11 @@ def install():
 
 def fixture(version):
     target=ARTIFACTS/('NPF-'+version+'.zip')
-    with zipfile.ZipFile('/home/tester/npf-public.zip') as source,zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as out:
+    with zipfile.ZipFile(os.environ.get('NPF_LAB_PACKAGE', '/home/tester/npf-public.zip')) as source,zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as out:
         for item in source.infolist():
             data=source.read(item)
             if item.filename.endswith('/packageApplication.py'):
-                data=data.replace(b'applicationVersion = "26.10.30"',('applicationVersion = "'+version+'"').encode())
+                data=re.sub(rb'applicationVersion\s*=\s*"[0-9.]+"', ('applicationVersion = "'+version+'"').encode(), data, count=1)
             if item.filename.endswith(('/finance.db','/platform.conf')): continue
             out.writestr(item,data)
         out.writestr('No-Part-Finance/finance.db',b'ignored-bundled-db')
@@ -256,10 +259,10 @@ def failure_package(delay=False):
         suffix+=b'''    import time\n    time.sleep(120)\n    return _manager_original_create(*args, **kwargs)\n'''
     else:
         suffix+=b'''    application = _manager_original_create(*args, **kwargs)\n    import sqlite3\n    connection = sqlite3.connect(application.config['DATABASE_PATH'])\n    connection.execute('PRAGMA user_version = 999')\n    connection.commit()\n    connection.close()\n    raise RuntimeError('Synthetic post-initialization failure')\n'''
-    with zipfile.ZipFile('/home/tester/npf-public.zip') as original, zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as out:
+    with zipfile.ZipFile(os.environ.get('NPF_LAB_PACKAGE', '/home/tester/npf-public.zip')) as original, zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as out:
         for item in original.infolist():
             data=original.read(item)
-            if item.filename.endswith('/packageApplication.py'): data=data.replace(b'applicationVersion = "26.10.30"',b'applicationVersion = "26.11.90"')
+            if item.filename.endswith('/packageApplication.py'): data=re.sub(rb'applicationVersion\s*=\s*"[0-9.]+"', b'applicationVersion = "26.11.90"', data, count=1)
             if item.filename.endswith('/app.py'): data+=suffix
             out.writestr(item,data)
     return target
@@ -316,7 +319,7 @@ def resume():
 def adoption():
     original=Path('/home/tester/original-npf')
     original.mkdir(exist_ok=True)
-    with zipfile.ZipFile('/home/tester/npf-public.zip') as archive: archive.extractall(original.parent/'original-unpack')
+    with zipfile.ZipFile(os.environ.get('NPF_LAB_PACKAGE', '/home/tester/npf-public.zip')) as archive: archive.extractall(original.parent/'original-unpack')
     for entry in (original.parent/'original-unpack/No-Part-Finance').iterdir():
         if entry.is_file(): shutil.copyfile(entry,original/entry.name)
         elif not (original/entry.name).exists(): shutil.copytree(entry,original/entry.name)
@@ -467,6 +470,79 @@ def ownerless_install():
         shutil.rmtree(data, ignore_errors=True)
 
 
+def waitress():
+    package = Path(os.environ.get('NPF_LAB_PACKAGE', '/home/tester/npf-26.11-public.zip'))
+    subprocess.run([sys.executable, str(SOURCE/'installer.py'), '--data', str(DATA)], check=True)
+    client, value = wait_status('running')
+    staged = client.request('/api/stage/application', source=package)
+    action(client, 'apply', id=staged['id'])
+    client, value = wait_status('running')
+    assert value['npf_listener']['backend'] == 'waitress'
+    assert database_info(DATA/'finance.db')['schema'] == 31
+    subprocess.run([sys.executable, str(SOURCE/'installer.py'), '--data', str(DATA), '--npf-port', 'auto'], check=True)
+    client, value = wait_status('running')
+    assert read_json(DATA/'settings.json')['npf_port'] is None
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+        route.connect(('192.0.2.1', 80)); address = route.getsockname()[0]
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    for binding, port in [('localhost', 5001), ('0.0.0.0', 5002), (address, 5003)]:
+        text = (DATA/'platform.conf').read_text()
+        # Remove only active serving keys; leave financial/proxy settings and ignored entries intact.
+        active, separator, ignored = text.partition('# --- Extra data (ignored) ---')
+        active = '\n'.join(line for line in active.splitlines() if not re.match(r'^\s*(listenAddress|serverPort)\s*=', line))
+        candidate = ARTIFACTS/'listener.conf'
+        candidate.write_text(f'listenAddress = {binding}\nserverPort = {port}\n'+active+'\n'+separator+ignored)
+        staged = client.request('/api/stage/configuration', source=candidate)
+        action(client, 'replace-files', configuration=staged['id'], confirmed=True)
+        client, value = wait_status('running')
+        endpoint = value['npf_listener']
+        assert endpoint['backend'] == 'waitress' and endpoint['port'] == port and endpoint['port_source'] == 'npf-configuration'
+        url = f'http://{endpoint["readiness_host"]}:{port}'
+        with opener.open(url, timeout=5) as response: assert response.status == 200 and 'waitress' in response.headers['Server'].lower()
+        try: opener.open(url+'/__npf_manager_ready', timeout=5)
+        except Exception as error: assert getattr(error, 'code', None) == 404
+        else: raise AssertionError('Readiness accepted a request without its launch secret')
+        action(client, 'stop'); wait_status('stopped')
+        action(client, 'start'); wait_status('running')
+        action(client, 'restart'); wait_status('running')
+    record('native-waitress', 'Real schema-31 upgrade, explicit auto-port selection, all/loopback/specific-interface bindings, private readiness and start/stop/restart passed; no guest IP/credentials recorded.')
+
+
+def waitress_privileged():
+    client, value = wait_status('running')
+    assert value['npf_listener']['backend'] == 'waitress'
+    assert read_json(DATA/'settings.json')['npf_port'] is None
+    configuration = DATA/'platform.conf'
+    original = configuration.read_bytes()
+    low, count = re.subn(r'(?m)^serverPort\s*=.*$', 'serverPort = 81', original.decode(), count=1)
+    assert count == 1
+    candidate = ARTIFACTS/'privileged-listener.conf'; candidate.write_text(low)
+    before = read_json(DATA/'child.json')['pid']
+    try: client.request('/api/stage/configuration', source=candidate)
+    except ManagerError as error: assert getattr(error.__cause__, 'code', None) == 400 and 'privileged' in str(error)
+    else: raise AssertionError('Low-port configuration bypassed installer capability setup')
+    assert read_json(DATA/'child.json')['pid'] == before and configuration.read_bytes() == original
+    try:
+        # Stop before editing canonical config: shutdown synchronizes the old runtime file.
+        subprocess.run(['systemctl', 'stop', 'npf-manager'], check=True)
+        atomic(configuration, low)
+        subprocess.run([sys.executable, str(SOURCE/'installer.py'), '--data', str(DATA)], check=True)
+        client, value = wait_status('running')
+        assert value['npf_listener']['port'] == 81
+        assert 'CAP_NET_BIND_SERVICE' in Path('/etc/systemd/system/npf-manager.service').read_text()
+        import pwd
+        status = Path('/proc/'+str(read_json(DATA/'child.json')['pid'])+'/status').read_text()
+        assert int(re.search(r'^Uid:\s+(\d+)', status, re.M).group(1)) == pwd.getpwnam('npf').pw_uid
+        record('waitress-privileged', 'Live low-port upload refused without mutation; stopped-service local configuration and elevated installer enabled NPF on port 81 under the npf service identity.')
+    finally:
+        subprocess.run(['systemctl', 'stop', 'npf-manager'], check=True)
+        atomic(configuration, original)
+        subprocess.run([sys.executable, str(SOURCE/'installer.py'), '--data', str(DATA)], check=True)
+        wait_status('running')
+    assert 'CAP_NET_BIND_SERVICE' not in Path('/etc/systemd/system/npf-manager.service').read_text()
+    record('waitress-privileged-restored', 'Original listener restored and unused bind capability removed.')
+
+
 def ownerless_fixture():
     # Build an empty database through upstream initialization, retaining its Owner safeguards.
     manager = Manager(DATA)
@@ -483,7 +559,7 @@ def main():
               'failure': fail, 'interrupt': interrupt, 'reboot': lambda: interrupt(True),
               'resume': resume, 'manager-failure': manager_failure, 'github': github,
               'adoption': adoption, 'privileged-port': privileged_port, 'uninstall': uninstall_check,
-              'ownerless-fixture': ownerless_fixture, 'ownerless-install': ownerless_install}
+              'ownerless-fixture': ownerless_fixture, 'ownerless-install': ownerless_install, 'waitress': waitress, 'waitress-privileged': waitress_privileged}
     parser = argparse.ArgumentParser(description='Remote disposable Linux guest acceptance checks')
     parser.add_argument('phase', choices=phases)
     args = parser.parse_args()

@@ -1,6 +1,6 @@
 # NPF Server Manager 26.11
 
-Installer, updater and local service supervisor for No Part Finance. One x64 NPF installation per machine. Release 26.11 has been tested on Debian 13, Fedora 44 and Windows 11 x64 build 26200. See the [release notes](CHANGELOG.md) and platform results below for tested coverage and limitations.
+Installer, updater and local service supervisor for No Part Finance. One x64 NPF installation per machine. Version 26.11 is a public release, not a prerelease. It has been tested on Debian 13, Fedora 44 and Windows 11 x64 build 26200. See the [release notes](CHANGELOG.md) and platform results below for tested coverage and limitations.
 
 ## Documentation
 
@@ -29,6 +29,16 @@ Defaults: `/opt/NPF-Server-Manager` and `/var/lib/NPF-Server-Manager` on Linux; 
 Adoption requires the original instance/launcher to be stopped; `--source-stopped` confirms this for automation. Original files remain untouched as a recovery copy. For unattended initial setup, an initialized/adopted database is supported, or Owner setup can be deferred; creating Owner credentials requires an interactive terminal. `--admin-password-file` supports a protected local input file for the manager password; do not put a password in shell arguments. Delete that input file after installation.
 
 Rerun the same installer to update the manager. This retains manager credentials/certificates/settings and NPF data. NPF updates remain manual. The web page shows the current version and up to two previous versions, then file downloads and uploads. Uploads validate and request confirmation in one flow; temporary upload and recovery lists are managed through the advanced CLI/API.
+
+## NPF HTTP serving and listening settings
+
+NPF 26.11 runs through its own Waitress `createHttpServer`/`closeHttpServer` helpers. The manager wraps the existing WSGI handler only for its private readiness route, preserving NPF's proxy policy, request limits, sessions, CSRF and ledger authorization. Terminal Owner setup remains separate from unattended HTTP startup. The manager's HTTPS listener and its `--bind`/`--port` settings are separate.
+
+The effective NPF port is an explicit manager `--npf-port NUMBER` override, otherwise NPF's loaded `platform.conf` `serverPort`, whose default is 5000. New installations follow configuration. Existing stored numeric ports remain overrides until explicitly cleared with `--npf-port auto`; omitting this flag on a rerun retains the current choice. The installer can also change an existing override. It does not rewrite the configured port to match an override. NPF's `listenAddress` is honored: `0.0.0.0`, `localhost`/loopback, or an assigned local IPv4 address. Invalid/nonlocal addresses and a port shared with manager HTTPS are rejected before configuration replacement. Privileged Linux NPF ports require a local administrator to stop the manager service, edit the canonical configuration and rerun the installer to grant the service its scoped bind capability.
+
+Status/CLI and the basic page expose `npf_listener`: the last successfully verified address, effective port, backend and port source (null before the first successful start). While configuration changes await restart, it continues to describe the verified runtime, not the pending file. Readiness uses that endpoint, bypasses HTTP proxies, and requires a per-launch secret and the expected same-host socket peer before NPF processes forwarding headers. Forwarded readiness requests are rejected; ordinary application requests retain NPF's trusted-proxy behavior.
+
+Supported older packages such as 26.10.30 use the explicitly reported `werkzeug-legacy` backend. The bridge validates the two serving settings for those packages and preserves the runtime configuration against older formatters moving new keys into ignored Extra data. A package declaring Waitress or a partial HTTP helper API must provide both helpers; native helper failures never fall back to Werkzeug. Rollback still restores the selected version's matching full database snapshot. IPv6 listener support is not added here.
 
 ## CLI
 

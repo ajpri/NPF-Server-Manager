@@ -268,9 +268,16 @@ class Manager:
 
     def status(self):
         running = self.process is not None and self.process.poll() is None
+        owner_setup_required = True
+        if self.database.exists():
+            try:
+                with contextlib.closing(sqlite3.connect(self.database.as_uri()+'?mode=ro', uri=True, timeout=10)) as db:
+                    owner_setup_required = db.execute("SELECT 1 FROM ledgerAccess WHERE role='owner' LIMIT 1").fetchone() is None
+            except sqlite3.Error:
+                owner_setup_required = None
         return {'manager_version': VERSION, 'npf': 'busy' if self.busy else (('running' if self.ready else 'starting') if running else ('failed' if self.failed else 'stopped')),
                 'operation': self.busy, 'active': self.state.get('active'), 'version': self.release_meta() if self.state.get('active') else None,
-                'result': self.state.get('result'), 'pending_configuration': self.state.get('pending_configuration', False),
+                'result': self.state.get('result'), 'owner_setup_required': owner_setup_required, 'pending_configuration': self.state.get('pending_configuration', False),
                 'restart_attempts': self.retries, 'history': [self.history_item(x) for x in self.state['history']],
                 'staged': self.items('staged'), 'recovery': self.items('recovery')}
 
@@ -329,8 +336,7 @@ class Manager:
             raise ManagerError('No active NPF version.')
         self.sync_configuration()
         recover_database(self.database)
-        if not database_info(self.database)['owner']:
-            raise ManagerError('NPF Owner setup must be completed in the installer.')
+        database_info(self.database)
         self.rotate_log()
         self.process_log = self.log_path().open('ab', buffering=0)
         kwargs = {'start_new_session': True} if os.name != 'nt' else {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}

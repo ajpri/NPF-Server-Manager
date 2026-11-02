@@ -1,0 +1,10 @@
+{
+  "empty_path_rejected": true,
+  "missing_base_rejected": true,
+  "working_base": true,
+  "missing_pip_rejected": true,
+  "powershell_parser": true,
+  "broken_base_rejected": true,
+  "environment": "Portable PowerShell on remote disposable Debian guest; Windows runtime acceptance pending",
+  "working_pip": true
+}

@@ -12,32 +12,32 @@ test_consistent_database_export_with_wal (test_manager.Operations.test_consisten
 test_database_failed_restart_recovers_previous (test_manager.Operations.test_database_failed_restart_recovers_previous) ... ok
 test_database_rejects_non_npf_and_newer_schema (test_manager.Operations.test_database_rejects_non_npf_and_newer_schema) ... ok
 test_database_replacement_requires_backup_even_when_stopped (test_manager.Operations.test_database_replacement_requires_backup_even_when_stopped) ... ok
-test_deferred_update_verifies_before_pruning (test_manager.Operations.test_deferred_update_verifies_before_pruning) ... /usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded16890>
+test_deferred_update_verifies_before_pruning (test_manager.Operations.test_deferred_update_verifies_before_pruning) ... /usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da46890>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded16a70>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da46980>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded162f0>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da462f0>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded167a0>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da467a0>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded16d40>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da46d40>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded14e50>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da44e50>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded171f0>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da471f0>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
 test_failed_interruption_recovery_keeps_journal (test_manager.Operations.test_failed_interruption_recovery_keeps_journal) ... ok
 test_failed_update_restores_snapshot_and_history (test_manager.Operations.test_failed_update_restores_snapshot_and_history) ... ok
 test_full_application_export_includes_all_data_and_current_configuration (test_manager.Operations.test_full_application_export_includes_all_data_and_current_configuration) ... ok
-test_github_checksum_mismatch_and_verified_staging (test_manager.Operations.test_github_checksum_mismatch_and_verified_staging) ... /usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42ded16f20>
+test_github_checksum_mismatch_and_verified_staging (test_manager.Operations.test_github_checksum_mismatch_and_verified_staging) ... /usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8da46f20>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
@@ -56,16 +56,18 @@ test_installer_uninstall_delegates_before_bootstrap_and_propagates_exit (test_ma
 test_interrupted_operation_restores_before_start (test_manager.Operations.test_interrupted_operation_restores_before_start) ... ok
 test_invalid_configuration_cannot_replace (test_manager.Operations.test_invalid_configuration_cannot_replace) ... ok
 test_manager_restart_does_not_bypass_failed_retry_limit (test_manager.Operations.test_manager_restart_does_not_bypass_failed_retry_limit) ... ok
+test_ownerless_setup_and_server_start (test_manager.Operations.test_ownerless_setup_and_server_start) ... ok
 test_pruning_keeps_independent_recovery (test_manager.Operations.test_pruning_keeps_independent_recovery) ... ok
 test_real_npf_start_stop_and_readiness (test_manager.Operations.test_real_npf_start_stop_and_readiness) ... ok
 test_restart_controls_and_upload_restart_from_stopped (test_manager.Operations.test_restart_controls_and_upload_restart_from_stopped) ... ok
 test_restore_always_uses_matching_database_and_rejects_keep_current (test_manager.Operations.test_restore_always_uses_matching_database_and_rejects_keep_current) ... ok
 test_restore_refuses_missing_snapshot_before_stopping (test_manager.Operations.test_restore_refuses_missing_snapshot_before_stopping) ... ok
 test_running_configuration_no_restart_preserves_pid (test_manager.Operations.test_running_configuration_no_restart_preserves_pid) ... ok
-test_snapshot_opt_out_is_rejected_without_changes (test_manager.Operations.test_snapshot_opt_out_is_rejected_without_changes) ... /usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42de1bcf40>
+test_skipped_owner_install_completes_and_rerun_offers_setup (test_manager.Operations.test_skipped_owner_install_completes_and_rerun_offers_setup) ... ok
+test_snapshot_opt_out_is_rejected_without_changes (test_manager.Operations.test_snapshot_opt_out_is_rejected_without_changes) ... /usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8d450f40>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
-/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f42de1bd030>
+/usr/lib64/python3.14/ast.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b8d450e50>
   return compile(source, filename, mode, flags,
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
@@ -77,6 +79,16 @@ test_uninstall_uses_registered_paths_and_requires_privilege (test_manager.Operat
 test_version_and_password_boundaries (test_manager.Operations.test_version_and_password_boundaries) ... ok
 
 ----------------------------------------------------------------------
-Ran 37 tests in 35.762s
+Ran 39 tests in 41.109s
 
 OK
+No NPF Owner is set up. Services will start; rerun this installer to complete Owner setup before signing in to NPF.
+NPF Server Manager 26.11 installed. HTTPS port 15050.
+Trust certificate: /tmp/tmpz4vu_hk2/data/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+NPF Server Manager 26.11 installed. HTTPS port 15050.
+Trust certificate: /tmp/tmpz4vu_hk2/data/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager
+NPF Server Manager 26.11 installed. HTTPS port 15050.
+Trust certificate: /tmp/tmpz4vu_hk2/data/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager

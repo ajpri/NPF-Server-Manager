@@ -348,13 +348,14 @@ def main():
                             package=Path(ask('Local NPF ZIP path'))
                     item=manager.prepare(package,package_origin)
                 manager.state['active']=item; manager.save(); manager.sync_configuration()
-            needs_setup=not manager.database.exists() or not database_info(manager.database)['owner']
-            if needs_setup:
-                command=[str(python_for(manager.release())),str(HERE/'npf_bridge.py'),'setup',str(manager.app()),str(manager.database),str(manager.app()),str(settings['npf_port'])]
-                subprocess.run(command,check=True)
-                if not database_info(manager.database)['owner']: raise ManagerError('Owner setup incomplete; rerun to resume.')
-                manager.sync_configuration(False)
-        # Publish manager files only after initial NPF setup is complete.
+        needs_setup=not manager.database.exists() or not database_info(manager.database)['owner']
+        if needs_setup:
+            command=[str(python_for(manager.release())),str(HERE/'npf_bridge.py'),'setup',str(manager.app()),str(manager.database),str(manager.app()),str(settings['npf_port'])]
+            subprocess.run(command,check=True)
+            if not database_info(manager.database)['owner']:
+                print('No NPF Owner is set up. Services will start; rerun this installer to complete Owner setup before signing in to NPF.')
+            manager.sync_configuration(False)
+        # Publish the manager even when Owner creation was deferred.
         pending=root/'manager.new'
         shutil.rmtree(pending,ignore_errors=True); pending.mkdir()
         for name in FILES:

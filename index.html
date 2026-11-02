@@ -16,6 +16,7 @@ label { display: inline-block; margin: .2em 0; }
 <main id="controls" hidden>
 <p><button id="logout">Sign out</button> <button id="refresh">Refresh status</button></p>
 <h2>No Part Finance</h2>
+<p id="owner-warning" role="status" hidden>No NPF Owner is set up. Complete Owner setup before signing in to No Part Finance. Rerun the platform installer as Administrator/root to create an Owner.</p>
 <p id="status"></p><button id="start">Start NPF</button> <button id="stop">Stop NPF</button> <button id="restart-server">Restart NPF</button>
 <div id="versions"></div>
 <form id="application-upload">
@@ -68,6 +69,7 @@ function action(name, values = {}) {
 }
 async function refresh() {
   const value = await request('/api/status');
+  el('owner-warning').hidden = value.owner_setup_required !== true;
   el('status').textContent = 'Status: ' + value.npf + (value.pending_configuration ? '. Configuration changes pending restart.' : '');
   const table = document.createElement('table');
   const head = document.createElement('tr');

@@ -120,7 +120,7 @@ sudo npf-manager stage configuration /safe/platform.conf
 
 `KIND` is `application`, `database` or `configuration`. Validates and retains a candidate without changing live files. The returned JSON includes its opaque 32-character lowercase hexadecimal ID, kind, Unix timestamp, SHA-256 and origin. Application candidates additionally include application/schema versions; database candidates include `schema` and `owner`.
 
-Default limits are 512 MiB for application/database inputs and 1 MiB for configuration. Application/database limits are configurable. ZIP validation rejects unsafe paths/types, duplicates and oversized extraction; the extracted default limit is 2 GiB and 20,000 entries. Database validation checks the full NPF structure and exercises the active release's migration on a disposable copy; unsupported/newer schemas are rejected. Retain a working Owner in replacement databases: staging can report `owner: false`, but NPF startup requires an Owner.
+Default limits are 512 MiB for application/database inputs and 1 MiB for configuration. Application/database limits are configurable. ZIP validation rejects unsafe paths/types, duplicates and oversized extraction; the extracted default limit is 2 GiB and 20,000 entries. Database validation checks the full NPF structure and exercises the active release's migration on a disposable copy; unsupported/newer schemas are rejected. Staging can report `owner: false`; NPF can start without an Owner, and manager status reports `owner_setup_required: true` until setup is completed.
 
 A local upload hash identifies its bytes; it does not authenticate the publisher. Staged inputs persist until successfully applied or explicitly deleted, including after a failed application. IDs are visible through `status`.
 
@@ -271,7 +271,7 @@ Windows: `installWindows.bat [install|update] [OPTIONS]` or `installWindows.ps1 
 
 On completed-installation reruns, retain the existing application/data paths, ports and bind settings; flags intended for first installation do not migrate these settings. Certificate replacement/renewal is supported on rerun. NPF upgrades are manual `stage`/`apply` operations, independent of manager updates. Full offline prerequisite installation is outside 26.11.
 
-Fresh NPF setup requires interactive terminal Owner creation using NPF's own protected prompts. A manager password file does not bypass Owner setup. Adoption can use an already initialized database after its original writer is stopped. The installer targets x64 Debian/Fedora systemd families and Windows 11; ARM is not supported in this release.
+Fresh NPF setup offers interactive terminal Owner creation using NPF's own protected prompts. Skipping it allows installation and both services to start; the manager UI warns that an Owner is still required for NPF sign-in. Rerun the same installer with the same data path to complete Owner setup later. A manager password file configures only the manager password. Adoption can use an already initialized database after its original writer is stopped. The installer targets x64 Debian/Fedora systemd families and Windows 11; ARM is not supported in this release.
 
 ## Common failures
 
@@ -286,3 +286,5 @@ Fresh NPF setup requires interactive terminal Owner creation using NPF's own pro
 | Wrong identifier/type | Copy the opaque ID from the relevant staged/history/recovery entry, not a version label or filename. |
 | Noninteractive confirmation/restart error | Supply `--yes` and, for configuration replacement, an explicit restart flag. Authentication still needs protected credential input. |
 | Existing download destination | Choose a new filename; downloads intentionally do not overwrite existing files. |
+
+On Windows, `installWindows.bat` pauses before closing and preserves its exit status. Set `NPF_INSTALLER_NO_PAUSE=1` to suppress the pause in automation, or invoke PowerShell directly. Bootstrap runtime checks attempt to recreate a broken temporary installer environment; an unusable base Python installation must be repaired first.

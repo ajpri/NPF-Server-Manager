@@ -3,8 +3,10 @@
 Status: pending user testing. Record the Windows build, manager revision and NPF version for each run. Use only synthetic data in a disposable/test installation.
 
 - [ ] Elevated installer provisions missing Python/dependencies and registers an actual automatic Windows Service.
+- [ ] Installer repairs a stale/broken bootstrap environment (including missing pip) when the selected base Python works; an unusable base interpreter produces a specific error before dependency installation.
 - [ ] Default and custom paths work, including spaces; port selection persists.
-- [ ] Manager password and interactive NPF Owner setup complete separately; interrupted setup resumes.
+- [ ] Manager password and interactive NPF Owner setup complete separately; skipping Owner creation still registers/starts both services and displays the authenticated UI warning. Rerunning the installer offers Owner creation, and the warning clears after completion.
+- [ ] Double-clicked batch installer pauses after success or failure; its exit code is preserved, and NPF_INSTALLER_NO_PAUSE=1 suppresses the pause.
 - [ ] Adopt an initialized installation without changing originals or duplicating writers.
 - [ ] Supplied and generated certificates work from another LAN computer with proper trust.
 - [ ] Password boundaries and privileged CLI reset work; old sessions stop working.

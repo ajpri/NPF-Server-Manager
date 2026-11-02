@@ -20,7 +20,7 @@ import uuid
 import zipfile
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from manager import Manager, ManagerError, VERSION, atomic, boot_id, check_password, database_info, metadata, python_for, read_json, recover_database, set_password, snapshot, write_json
+from manager import Manager, ManagerError, VERSION, atomic, boot_id, check_password, database_info, install_database, metadata, python_for, read_json, recover_database, set_password, snapshot, write_json
 from installer import certificate
 from server import HTTPServer
 
@@ -162,6 +162,64 @@ c.close()
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='synthetic_replacement'").fetchone())
         self.assertEqual(self.manager.status()['npf'],'running')
         self.assertFalse((self.data/'operation.json').exists())
+
+    def test_ownerless_setup_and_server_start(self):
+        original = self.directory/'with-owner.db'
+        snapshot(self.manager.database, original)
+        ownerless = self.directory/'ownerless.db'
+        self.manager.bridge('validate-db', database=ownerless)
+        install_database(ownerless, self.manager.database)
+        self.assertTrue(self.manager.status()['owner_setup_required'])
+        from manager import HERE
+        setup = subprocess.run([str(python_for(self.manager.release())), str(HERE/'npf_bridge.py'),
+                                'setup', str(self.manager.app()), str(self.manager.database),
+                                str(self.manager.app()), str(self.manager.settings['npf_port'])],
+                               input='n\n', text=True, capture_output=True, timeout=60)
+        self.assertEqual(setup.returncode, 0, setup.stderr)
+        self.manager.execute('start')
+        self.assertEqual(self.manager.status()['npf'], 'running')
+        self.assertTrue(self.manager.status()['owner_setup_required'])
+        self.manager.stop_process()
+        install_database(original, self.manager.database)
+        self.assertFalse(self.manager.status()['owner_setup_required'])
+
+    def test_skipped_owner_install_completes_and_rerun_offers_setup(self):
+        import installer
+        original = self.directory/'with-owner.db'
+        snapshot(self.manager.database, original)
+        ownerless = self.directory/'ownerless.db'
+        self.manager.bridge('validate-db', database=ownerless)
+        install_database(ownerless, self.manager.database)
+        cert, key = certificate(self.data, ['localhost', '127.0.0.1'])
+        settings = read_json(self.data/'settings.json')
+        settings.update(installed=False, certificate=cert, private_key=key, port=15050)
+        write_json(self.data/'settings.json', settings)
+        run = subprocess.run
+        setups = []
+        def commands(command, **kwargs):
+            if command[0] == 'systemctl':
+                return subprocess.CompletedProcess(command, 0)
+            if 'setup' in command:
+                setups.append(command)
+                if len(setups) == 2:
+                    # Simulate upstream's protected terminal prompts completing successfully.
+                    install_database(original, self.manager.database)
+                return run(command, input='n\n', text=True, capture_output=True, **kwargs)
+            return run(command, **kwargs)
+        with patch('sys.argv', ['installer.py', '--data', str(self.data)]), patch('cli.privileged', return_value=True), \
+             patch.object(installer, 'service') as service, patch.object(installer.subprocess, 'run', side_effect=commands):
+            installer.main()
+            self.assertTrue(read_json(self.data/'settings.json')['installed'])
+            self.assertTrue((self.root/'manager/cli.py').is_file())
+            self.assertTrue((self.root/'manager/installation.json').is_file())
+            self.assertFalse(database_info(self.manager.database)['owner'])
+            service.assert_called_once()
+            installer.main()
+            self.assertEqual(len(setups), 2)
+            self.assertTrue(database_info(self.manager.database)['owner'])
+            self.assertEqual(service.call_count, 2)
+            installer.main()
+            self.assertEqual(len(setups), 2, 'Existing Owners must not be prompted or recreated.')
 
     def test_version_and_password_boundaries(self):
         self.assertEqual(VERSION,'26.11')

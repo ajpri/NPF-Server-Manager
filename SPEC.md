@@ -41,7 +41,7 @@ The actual database path is authoritative, including any `FINANCE_DATABASE_PATH`
 2. Establish selected paths, prerequisites, manager settings, administrator password, management port, and certificate mode.
 3. Attempt to download the latest stable published NPF GitHub release, excluding drafts and prereleases. Allow a local NPF ZIP if GitHub is unavailable.
 4. Validate and prepare NPF and its isolated Python dependencies.
-5. Complete NPF's initial Owner setup interactively in the terminal using NPF's own supported credential rules.
+5. Offer NPF's initial Owner setup interactively in the terminal using NPF's own supported credential rules. Allow deferral and start both the manager and NPF without an Owner. The authenticated management page must clearly show that Owner setup remains required before NPF sign-in. Rerunning the installer must offer deferred Owner setup even for a completed installation.
 6. Stop the foreground setup instance cleanly before handing NPF over to the manager service.
 7. Register and start the manager service and report NPF and management addresses and the installation outcome.
 
@@ -49,7 +49,7 @@ A fresh installation must not silently seed personal data or credentials from a 
 
 NPF's current setup starts its HTTP server before prompting. Do not run foreground and managed instances concurrently. Identify completion using authoritative NPF setup state rather than database-file existence. Existing initialized installations skip Owner setup. The manager password is separate from NPF Owner credentials.
 
-If prerequisites cannot be downloaded, stop with a clear explanation and preserve completed setup for a safe rerun. Do not report partial installation as complete or enable an incompletely configured service. Full offline prerequisite provisioning is not required.
+If prerequisites cannot be downloaded, stop with a clear explanation and preserve completed setup for a safe rerun. Do not report failed prerequisite/service installation as complete. Deferred Owner creation is an explicit supported outcome, with services enabled and a management warning. Full offline prerequisite provisioning is not required.
 
 ### Adopting an existing installation
 

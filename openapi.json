@@ -290,7 +290,8 @@
                     }
                   ],
                   "staged": [],
-                  "recovery": []
+                  "recovery": [],
+                  "owner_setup_required": false
                 }
               }
             }
@@ -384,7 +385,7 @@
           "Uploads"
         ],
         "summary": "Validate and retain a full finance.db candidate",
-        "description": "Raw SQLite file only, not multipart. Must be a full supported NPF installation database; selected-ledger browser exports are unsuitable. Candidate validation uses a disposable copy with the active NPF release. Newer/unsupported schema is rejected without modifying live data. The response reports owner; staging can succeed with owner=false, but NPF startup requires an Owner, so retain working Owner state in replacements. Uploading never changes live files or restarts NPF. The returned candidate persists until applied or explicitly deleted.",
+        "description": "Raw SQLite file only, not multipart. Must be a full supported NPF installation database; selected-ledger browser exports are unsuitable. Candidate validation uses a disposable copy with the active NPF release. Newer/unsupported schema is rejected without modifying live data. The response reports owner; staging can succeed with owner=false, and NPF can start without an Owner; manager status reports owner_setup_required until setup is completed before NPF sign-in. Uploading never changes live files or restarts NPF. The returned candidate persists until applied or explicitly deleted.",
         "security": [
           {
             "bearerAuth": []
@@ -1688,6 +1689,13 @@
             "items": {
               "$ref": "#/components/schemas/RecoveryItem"
             }
+          },
+          "owner_setup_required": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True when no NPF Owner is configured (or the database is not yet present), false when an Owner exists, null when the database cannot be read. NPF may run without an Owner; rerun the installer to create one before NPF sign-in."
           }
         },
         "required": [
@@ -1701,7 +1709,8 @@
           "restart_attempts",
           "history",
           "staged",
-          "recovery"
+          "recovery",
+          "owner_setup_required"
         ]
       },
       "ApplyRequest": {

@@ -1,6 +1,7 @@
 """Guest-only browser verification and screenshots of the compact manager UI."""
 import json
 import os
+import subprocess
 import sqlite3
 import zipfile
 from pathlib import Path
@@ -19,6 +20,7 @@ with sync_playwright() as p:
     page.get_by_label('Administrator password').fill(password)
     page.get_by_role('button', name='Sign in', exact=True).click()
     expect(page.locator('#status')).to_contain_text('running')
+    expect(page.locator('#owner-warning')).to_be_hidden()
     expect(page.locator('#versions tr')).to_have_count(4)
     page.get_by_role('button', name='Restart NPF', exact=True).click()
     expect(page.locator('#message')).to_have_text('NPF running.', timeout=60000)
@@ -100,12 +102,35 @@ with sync_playwright() as p:
     modal.get_by_role('button',name='Confirm restore',exact=True).click()
     expect(page.locator('#message')).to_have_text('Rollback complete.',timeout=60000)
     expect(page.locator('#status')).to_contain_text('running')
+    # An ownerless full database can run, but the manager must explain the missing setup.
+    owner_baseline = artifacts/'before-owner-check.db'
+    with page.expect_download() as download:
+        page.get_by_role('link', name='Download finance.db', exact=True).click()
+    download.value.save_as(owner_baseline)
+    subprocess.run(['sudo', 'python3', str(Path(__file__).with_name('acceptance.py')), 'ownerless-fixture'], check=True)
+    ownerless = inputs/'ownerless.db'
+    try:
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#database-file').set_input_files(str(ownerless))
+        page.locator('#files-upload button').click()
+        expect(page.locator('#message')).to_have_text('Files replaced. No Part Finance restarted.', timeout=60000)
+        expect(page.locator('#status')).to_have_text('Status: running')
+        expect(page.locator('#owner-warning')).to_be_visible()
+        expect(page.locator('#owner-warning')).to_contain_text('Rerun the platform installer')
+        page.screenshot(path=str(artifacts/'owner-setup-required-26.11.png'), full_page=True)
+    finally:
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.locator('#database-file').set_input_files(str(owner_baseline))
+        page.locator('#files-upload button').click()
+        expect(page.locator('#message')).to_have_text('Files replaced. No Part Finance restarted.', timeout=60000)
+        expect(page.locator('#owner-warning')).to_be_hidden()
     assert not errors, errors
     page.screenshot(path=str(artifacts / 'manager-26.11.png'), full_page=True)
     page.set_viewport_size({'width': 390, 'height': 844})
     assert page.evaluate('() => document.documentElement.scrollWidth <= window.innerWidth + 1'), 'Horizontal page overflow'
     page.screenshot(path=str(artifacts / 'manager-26.11-mobile.png'), full_page=True)
     (artifacts / 'browser-results.json').write_text(json.dumps({
+        'ownerless_server_runs_and_ui_warning_clears_after_owner_restored': True,
         'login': True, 'database_and_configuration_downloads': True,
         'cancelled_zip_leaves_live_files_unchanged': True,
         'configuration_upload_and_restart': True, 'restart_button': True,

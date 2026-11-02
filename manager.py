@@ -26,7 +26,7 @@ HERE = Path(__file__).resolve().parent
 VERSION = (HERE/'VERSION').read_text(encoding='utf-8').strip()
 if not re.fullmatch(r'\d+\.\d+(?:\.\d+)*', VERSION):
     raise ValueError('VERSION must contain a numeric release number.')
-DEFAULT_DATA = Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'NPF' if os.name == 'nt' else Path('/var/lib/npf')
+DEFAULT_DATA = Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'NPF-Server-Manager' if os.name == 'nt' else Path('/var/lib/NPF-Server-Manager')
 MAX_UPLOAD = 512 * 1024 * 1024
 MAX_EXTRACT = 2 * 1024 * 1024 * 1024
 
@@ -95,6 +95,12 @@ def boot_id():
 
 def python_for(release):
     return Path(release) / 'venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+
+
+def npf_command(release, *arguments):
+    # NPF ships UTF-8 assets; Windows legacy code pages cannot decode them.
+    options = ['-X', 'utf8'] if os.name == 'nt' else []
+    return [str(python_for(release)), *options, *map(str, arguments)]
 
 
 def metadata(app):
@@ -268,9 +274,16 @@ class Manager:
 
     def status(self):
         running = self.process is not None and self.process.poll() is None
+        owner_setup_required = True
+        if self.database.exists():
+            try:
+                with contextlib.closing(sqlite3.connect(self.database.as_uri()+'?mode=ro', uri=True, timeout=10)) as db:
+                    owner_setup_required = db.execute("SELECT 1 FROM ledgerAccess WHERE role='owner' LIMIT 1").fetchone() is None
+            except sqlite3.Error:
+                owner_setup_required = None
         return {'manager_version': VERSION, 'npf': 'busy' if self.busy else (('running' if self.ready else 'starting') if running else ('failed' if self.failed else 'stopped')),
                 'operation': self.busy, 'active': self.state.get('active'), 'version': self.release_meta() if self.state.get('active') else None,
-                'result': self.state.get('result'), 'pending_configuration': self.state.get('pending_configuration', False),
+                'result': self.state.get('result'), 'owner_setup_required': owner_setup_required, 'pending_configuration': self.state.get('pending_configuration', False),
                 'restart_attempts': self.retries, 'history': [self.history_item(x) for x in self.state['history']],
                 'staged': self.items('staged'), 'recovery': self.items('recovery')}
 
@@ -297,8 +310,8 @@ class Manager:
 
     def bridge(self, mode, *, release=None, database=None, config=None, timeout=90):
         item = release or self.state['active']
-        command = [str(python_for(self.release(item))), str(HERE / 'npf_bridge.py'), mode, str(self.app(item)),
-                   str(database or self.database), str(config or self.app(item)), str(self.settings.get('npf_port', 5000))]
+        command = npf_command(self.release(item), HERE / 'npf_bridge.py', mode, self.app(item),
+                              database or self.database, config or self.app(item), self.settings.get('npf_port', 5000))
         completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
         if completed.returncode:
             raise ManagerError('NPF validation failed. Check package/database/configuration compatibility; live files were not used for validation.')
@@ -329,12 +342,11 @@ class Manager:
             raise ManagerError('No active NPF version.')
         self.sync_configuration()
         recover_database(self.database)
-        if not database_info(self.database)['owner']:
-            raise ManagerError('NPF Owner setup must be completed in the installer.')
+        database_info(self.database)
         self.rotate_log()
         self.process_log = self.log_path().open('ab', buffering=0)
         kwargs = {'start_new_session': True} if os.name != 'nt' else {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
-        command = [str(python_for(self.release())), str(HERE/'npf_bridge.py'), 'run', str(self.app()), str(self.database), str(self.app()), str(self.settings.get('npf_port', 5000))]
+        command = npf_command(self.release(), HERE/'npf_bridge.py', 'run', self.app(), self.database, self.app(), self.settings.get('npf_port', 5000))
         self.readiness_token = secrets.token_hex(32)
         (self.data/'stop-child').unlink(missing_ok=True)
         environment = dict(os.environ, NPF_MANAGER_READINESS=self.readiness_token, NPF_MANAGER_STOP_FILE=str(self.data/'stop-child'))

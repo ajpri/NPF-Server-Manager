@@ -1,9 +1,10 @@
-"""Windows SCM host. Windows validation is performed manually by the user."""
+"""Windows SCM host with contained NPF child processes."""
 import os
 from pathlib import Path
 import sys
 import subprocess
 import threading
+import uuid
 
 if sys.platform=='win32':
     import servicemanager
@@ -37,7 +38,8 @@ if sys.platform=='win32':
             from manager import Manager
             from server import HTTPServer
             # All descendants belong to a kill-on-close job, including on service crashes.
-            job=win32job.CreateJobObject(None,None)
+            # pywin32 requires a string name, rather than the Win32 NULL name.
+            job=win32job.CreateJobObject(None,'NPFServerManager-'+uuid.uuid4().hex)
             limits=win32job.QueryInformationJobObject(job,win32job.JobObjectExtendedLimitInformation)
             limits['BasicLimitInformation']['LimitFlags']=win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             win32job.SetInformationJobObject(job,win32job.JobObjectExtendedLimitInformation,limits)

@@ -1,10 +1,10 @@
 # Version 26.11 — Linux validation
 
-Recorded on 2026-11-01 (America/Chicago). Guest logs use UTC, so some entries are dated November 2. Windows 11 runtime testing is pending the user's [manual checklist](WINDOWS-CHECKLIST.md).
+Linux results recorded on 2026-11-01 (America/Chicago). Guest logs use UTC, so some entries are dated November 2. Subsequent actual Windows 11 verification is recorded separately in [Windows results](WINDOWS-TEST-RESULTS.md).
 
 ## Environment
 
-All runtime tests ran in disposable x64 QEMU guests on the separate SSH-accessible Linux test computer. No application, service, prerequisite installation, VM, or runtime test was run on the local development computer.
+All Linux runtime tests in this report ran in disposable x64 QEMU guests on the separate SSH-accessible Linux test computer. No Linux application, service, prerequisite installation, VM, or runtime test was run on the local development computer.
 
 Portable QEMU 8.2.2 was downloaded as distribution packages and extracted within the approved remote lab directory. Host packages/services/firewall were not modified. Each guest used KVM, four virtual CPUs, 4 GiB RAM, a 24 GiB copy-on-write disk, and user-mode networking with loopback-only host forwarding. The host also acted as a separate HTTPS client to the guest through forwarding, with certificate verification enabled.
 
@@ -28,12 +28,34 @@ NPF_TEST_ZIP=/home/tester/npf-public.zip python3 -m unittest discover -s tests -
 
 | Distribution | Tests | Result | Final duration |
 | --- | --- | --- | --- |
-| Debian 13 | 37 | All passed | 32.933 seconds |
-| Fedora 44 | 37 | All passed | 35.762 seconds |
+| Debian 13 | 39 | All passed | 37.979 seconds |
+| Fedora 44 | 39 | All passed | 41.132 seconds |
 
 Logs: [Debian](validation/debian/tests.log), [Fedora](validation/fedora/tests.log).
 
 The suite verifies password boundaries and reset, multi-ledger/credential-bearing SQLite snapshots, hot-journal recovery, read-only candidate validation, staged configuration/database flows, mandatory replacement backups, invalid/newer-schema database rejection, unsafe ZIP paths/links and extraction limits, busy locking, readiness and duplicate-start prevention, mandatory database backups, snapshot opt-out rejection, update failure restoration, deferred update verification, manual snapshot rollback and failed rollback restoration, interrupted-operation recovery/refusal, retention, supplied certificate validation, release checksum mismatch/success, persisted crash-failure state, API authentication/reset/CSRF, body limits, chunked-upload rejection, private-path denial, export cleanup, and private CLI export permissions, full application-package exports with multiple ledgers/password hashes/integration secrets/committed WAL data, explicit restart including upload-and-restart from stopped state, combined replacement of either/both files with one restart and two-file recovery, and uninstall privilege/registered-path/confirmation guards, and installer dispatch/exit-code propagation before prerequisite setup.
+
+## Linux directory alignment — November 2
+
+Pulled the finalized Windows work at `937c9c8`, then aligned Linux defaults with the same directory name: `/opt/NPF-Server-Manager` for application files and `/var/lib/NPF-Server-Manager` for persistent data. The `npf-manager` command, service/account names and locator remain unchanged. Registered/custom paths are preserved on reruns; no production migration or automatic relocation was added.
+
+Only the two disposable default-path Linux installations were replaced. Each old synthetic installation was uninstalled, then freshly installed by accepting the new default application/data prompts. Existing old default directories were verified absent. Both complete 39-test regression suites passed. Installed checks verified new settings/manifest paths, CLI discovery, launcher/systemd paths, service enablement, and running NPF: [structured results](validation/linux-directory-results.json).
+
+At the renamed paths, actual CLI/API exports and replacements, application updates, three-version retention, matching-database restore, crash retry limits and explicit restart passed on both distributions. Both installer uninstall entry points removed all managed application/data files and the test helper restored only the synthetic installations from its temporary archive. Reboot started NPF automatically; installer reruns retained the selected paths and intentional Stop state. Logs: [Debian installation](validation/debian/linux-paths-reinstall.log), [runtime](validation/debian/linux-paths-runtime.log), [reboot/rerun](validation/debian/linux-paths-boot.log), [uninstall](validation/debian/linux-paths-uninstall.log); [Fedora installation](validation/fedora/linux-paths-reinstall.log), [runtime](validation/fedora/linux-paths-runtime.log), [reboot/rerun](validation/fedora/linux-paths-boot.log), [uninstall](validation/fedora/linux-paths-uninstall.log).
+
+The Debian [browser workflows](validation/linux-paths-browser-results.json) and updated [API/CLI documentation checks](validation/linux-paths-documentation-results.json) passed using the new installation and its trusted newly generated certificate, with no JavaScript errors. Both services were healthy before the guests were shut down after evidence collection. No runtime tests or services ran locally. Windows code and its recorded verification were retained; Windows was not retested for this Linux-default change.
+
+## Windows fixes branch verification — November 2
+
+Owner creation can be deferred: installation completes and the manager and NPF start without an Owner. Authenticated status exposes `owner_setup_required`, and the single-file UI warns when setup is required. Rerunning an already completed installation offers protected terminal Owner setup when no Owner exists; existing Owners are preserved.
+
+The complete 39-test suites passed in both remote guests, including actual ownerless NPF startup and installer publication/resume checks. Real fresh installations then declined Owner creation, verified the active systemd service, authenticated HTTPS status and running NPF, reran the completed installer, and created an Owner through upstream protected terminal prompts. Both fixtures restored the original independent synthetic service afterward: [Debian](validation/debian/debian-windows-fixes-ownerless.log), [Fedora](validation/fedora/fedora-windows-fixes-ownerless.log).
+
+The Debian [browser run](validation/windows-fixes-browser-results.json) exercised the existing workflows plus replacement with a fresh ownerless database, continued NPF operation, the setup warning, and restoration of the original database with the warning clearing. HTTPS verification passed and no JavaScript errors occurred. [Owner warning screenshot](screenshots/owner-setup-required-26.11.png). The updated [OpenAPI/CLI checks](validation/windows-fixes-documentation-results.json) passed against the installed service.
+
+The Windows bootstrap now probes the selected base interpreter and temporary environment, rebuilds an unusable temporary environment when possible, and reports interpreter/prerequisite failures clearly. An official portable PowerShell runtime inside the disposable Debian guest parsed the script and verified acceptance of working Python/pip and rejection of missing/broken Python and missing pip: [results](validation/windows-bootstrap-results.json). This is a parser/probe check, **not Windows runtime acceptance**. Automatic Windows environment repair, service registration and the batch pause/exit-code behavior remain for manual Windows 11 testing. The batch installer pauses by default; `NPF_INSTALLER_NO_PAUSE=1` suppresses the pause for automation.
+
+No application or runtime tests ran locally. Both disposable guests were shut down after verification. Version remains 26.11; earlier reboot/stability/uninstall evidence below was retained rather than rerun for this branch.
 
 ## Internal simplification verification — November 2
 
@@ -97,7 +119,7 @@ On 2026-11-02, openapi.json passed formal OpenAPI 3.1 validation in the remote d
 
 ## Validation boundaries
 
-Windows 11 installers and service integration are present but have **not been run**. Windows acceptance remains pending manual testing. Other Debian/Fedora derivatives and older OS releases were not separately tested.
+Windows 11 was tested separately after this Linux run; see [Windows results](WINDOWS-TEST-RESULTS.md) for its actual coverage and remaining scenarios. Other Debian/Fedora derivatives and older OS releases were not separately tested.
 
 The upstream integration contract was exercised against v26.10.30. The tests do not establish compatibility with every historical NPF schema or unknown future release. Migration/failure handling uses upstream initialization on disposable copies plus controlled fault fixtures; this is not a historical-release upgrade matrix.
 

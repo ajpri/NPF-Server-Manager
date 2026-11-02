@@ -2,7 +2,7 @@
 
 Version: **26.11**.
 
-Status: Implementation specification for version 26.11. Linux validation results are recorded in [docs/TEST-RESULTS.md](docs/TEST-RESULTS.md). Windows runtime validation remains pending the user's manual testing.
+Status: Release specification for version 26.11. Tested on Debian 13, Fedora 44 and Windows 11 x64 build 26200. Recorded coverage and limitations are in [Linux results](docs/TEST-RESULTS.md) and [Windows results](docs/WINDOWS-TEST-RESULTS.md); see [release notes](CHANGELOG.md) for this release's changes.
 
 ## 1. Purpose and scope
 
@@ -14,7 +14,7 @@ The first release targets x86-64 (x64):
 - Fedora and related distributions with systemd.
 - Windows 11.
 
-ARM support is deferred. Linux is the primary acceptance target. Windows support must be implemented, with testing performed manually by the user; Linux results do not establish Windows compatibility. Record exact supported and tested OS releases in implementation documentation rather than claiming every derivative is verified.
+ARM support is deferred. Linux acceptance uses remote disposable guests; Windows verification uses actual Windows runtime checks and focused synthetic fixtures. Linux results do not establish Windows compatibility. Record exact tested OS releases and scenario coverage rather than claiming every derivative or workflow is verified.
 
 Out of scope: multiple managed installations, remote installation onto other computers, scheduled/automatic NPF updates, full offline prerequisite installation, and a styled frontend.
 
@@ -26,8 +26,8 @@ Provide platform entry points named `installLinux` and `installWindows`, with ap
 
 | Platform | Default application location | Default persistent data/backup location |
 | --- | --- | --- |
-| Linux | `/opt/npf` | `/var/lib/npf` |
-| Windows 11 | `C:\Program Files\NPF` | `C:\ProgramData\NPF` |
+| Linux | `/opt/NPF-Server-Manager` | `/var/lib/NPF-Server-Manager` |
+| Windows 11 | `C:\Program Files\NPF-Server-Manager` | `C:\ProgramData\NPF-Server-Manager` |
 
 Offer these defaults and allow custom locations. Persist paths for services, CLI operations, installer reruns, updates, and recovery. Separate manager settings and secrets from NPF packages, databases, configuration, and version history.
 
@@ -41,7 +41,7 @@ The actual database path is authoritative, including any `FINANCE_DATABASE_PATH`
 2. Establish selected paths, prerequisites, manager settings, administrator password, management port, and certificate mode.
 3. Attempt to download the latest stable published NPF GitHub release, excluding drafts and prereleases. Allow a local NPF ZIP if GitHub is unavailable.
 4. Validate and prepare NPF and its isolated Python dependencies.
-5. Complete NPF's initial Owner setup interactively in the terminal using NPF's own supported credential rules.
+5. Offer NPF's initial Owner setup interactively in the terminal using NPF's own supported credential rules. Allow deferral and start both the manager and NPF without an Owner. The authenticated management page must clearly show that Owner setup remains required before NPF sign-in. Rerunning the installer must offer deferred Owner setup even for a completed installation.
 6. Stop the foreground setup instance cleanly before handing NPF over to the manager service.
 7. Register and start the manager service and report NPF and management addresses and the installation outcome.
 
@@ -49,7 +49,7 @@ A fresh installation must not silently seed personal data or credentials from a 
 
 NPF's current setup starts its HTTP server before prompting. Do not run foreground and managed instances concurrently. Identify completion using authoritative NPF setup state rather than database-file existence. Existing initialized installations skip Owner setup. The manager password is separate from NPF Owner credentials.
 
-If prerequisites cannot be downloaded, stop with a clear explanation and preserve completed setup for a safe rerun. Do not report partial installation as complete or enable an incompletely configured service. Full offline prerequisite provisioning is not required.
+If prerequisites cannot be downloaded, stop with a clear explanation and preserve completed setup for a safe rerun. Do not report failed prerequisite/service installation as complete. Deferred Owner creation is an explicit supported outcome, with services enabled and a management warning. Full offline prerequisite provisioning is not required.
 
 ### Adopting an existing installation
 
@@ -190,11 +190,20 @@ If the elected restart fails, stop the failed instance, restore previous configu
 
 ### Local uninstall
 
+On Windows, register NPF Server Manager per machine in the 64-bit installed-apps
+registry, with its version, publisher, application location and uninstall command.
+Refresh registration on installer reruns; disable Modify and Repair. The command
+opens an elevated interactive launcher for the existing trusted CLI, showing the
+permanent financial-data deletion warning and default-No confirmation. Do not
+provide a silent uninstall command through this entry. Cancellation retains the
+entry; successful managed-file cleanup removes it. A cleanup failure retains the
+entry for troubleshooting. Linux installation and uninstall behavior is unchanged.
+
 Provide `npf-manager uninstall` on Linux and Windows, requiring local root/Administrator privileges. Also support `installLinux.sh uninstall`, `installWindows.bat uninstall`, `installWindows.ps1 uninstall`, and `installer.py uninstall`, forwarding confirmation and --yes to the installed cleanup routine before prerequisite bootstrapping. Resolve the installed runtime/code from privileged installation registration rather than service-writable settings. Display the trusted registered application/data paths and ask confirmation with default No. Noninteractive use requires `--yes`. Remove the service and launcher, installed manager/NPF code and private runtime, and all managed data including finance.db, platform.conf, credentials, certificates, stages, history and backups. Uninstall is destructive by design; provide no HTTP uninstall endpoint. Keep original adopted sources, unrelated files and shared OS prerequisites. Remove a Linux service account only when recorded as created by this installation. On Windows, remove the dedicated installer runtime and finish locked-file cleanup after the CLI exits. Use a root/Administrator-owned installation manifest, reject unsafe/system paths, and refuse deletion if another manager still holds the installation lock. Source checkouts cannot be uninstalled through this command; older installed copies must first rerun the installer to register cleanup paths.
 
 ### Source organization
 
-Keep six application Python modules: manager.py, server.py, cli.py, installer.py, npf_bridge.py and windows_service.py. Installation and uninstallation share installer.py; NPF subprocess and Windows Service entry points stay separate. All development checks live under tests/: the regression suite, one phased remote acceptance runner and one browser/screenshot helper. Do not ship test helpers with the installed application. Single-file CLI/API replacements and combined web uploads share the same validation, full-backup and recovery implementation, preserving their explicit restart choices.
+Keep six application Python modules: manager.py, server.py, cli.py, installer.py, npf_bridge.py and windows_service.py. Installation and uninstallation share installer.py; NPF subprocess and Windows Service entry points stay separate. Windows also installs uninstallWindows.ps1 for the installed-apps elevation/confirmation flow. All development checks live under tests/: the Linux regression suite, one phased remote acceptance runner, one browser/screenshot helper and the focused Windows smoke helper. Do not ship test helpers with the installed application. Single-file CLI/API replacements and combined web uploads share the same validation, full-backup and recovery implementation, preserving their explicit restart choices.
 
 ## 9. Shared implementation contracts
 
@@ -214,13 +223,13 @@ Implementation details may use straightforward defaults without reopening agreed
 
 Linux acceptance testing must run on a separate Linux computer supplied by the user, reached through SSH, using virtual machines created with portable QEMU on that remote computer. Connection and host information are supplied separately and must not be stored in this specification.
 
-**Do not run tests locally.** Do not install services/prerequisites, launch NPF or the manager, create test databases, or run QEMU/test VMs on the local development computer. Local document/source editing and static review are allowed. Run automated tests, integration checks, service tests, and runtime verification inside the remote test VMs. The SSH host is the VM host, not an installation test target.
+**Do not run the Linux helpers locally.** Do not provision Linux services/prerequisites or run Linux test VMs on the local development computer. Run Linux automated tests, integration checks, service tests and runtime verification inside the remote test VMs. The SSH host is the VM host, not an installation test target. The separate Windows verification workflow is described below.
 
 Do not begin remote provisioning before the host/access information and applicable host constraints are supplied. Keep VM disks, portable QEMU, downloaded images, and test artifacts within the agreed remote location. Do not replace host packages or change host services/network/firewall as part of guest tests. Record the QEMU invocation, guest images/releases, network access method, and acceleration available. Keep the remote management interface reachable from a separate client for LAN-equivalent verification; do not publicly expose it.
 
 Use disposable x64 guests representing both Debian and Fedora families. Additional derivative compatibility must be reported separately. Use synthetic financial data, fake credentials/SMTP, and controlled package fixtures. Never use or modify the user's real NPF database, configuration, or credentials. Keep enough evidence to distinguish real-release verification from injected failure fixtures.
 
-Windows 11 testing is performed manually by the user. Supply a corresponding Windows checklist and record results as pending until the user reports them. Do not claim Windows has passed based on code review or Linux results.
+Windows 11 verification runs on a designated Windows machine. Record the Windows build, manager/NPF versions, actual runtime outcomes and limitations in docs/WINDOWS-TEST-RESULTS.md. Use synthetic temporary files/registry entries for focused checks and disposable installations for destructive acceptance. Do not infer a Windows pass from code review or Linux results.
 
 ### Linux acceptance scenarios
 
@@ -248,13 +257,13 @@ Run applicable scenarios on both Debian-family and Fedora-family guests. Each re
 | L18 | Manager update | Installer rerun updates manager while preserving settings, password, certificates, NPF data/history and Stop state; no implicit NPF update; failed manager startup has documented recovery. |
 | L19 | Basic UI | Stock controls and white background; keyboard labels usable; status/errors and all required operations accessible without frameworks or decorative styling. |
 
-### Windows manual checklist
+### Windows release verification
 
-Provide the user with Windows 11 x64 steps covering fresh installation/prerequisites, custom paths, adoption, actual Windows Service installation, reboot/control/crash behavior, HTTPS/login/reset, ZIP staging/update/rollback, database/configuration transfers through all interfaces, restart defaults/flags, retention, and manager update. Record tested revision and manual outcomes. Mark untested Windows behavior explicitly.
+Release 26.11 Windows results cover actual service installation/startup, installation recovery, HTTPS/login/password reset, CRLF/CSP handling, UTF-8 page rendering, the renamed installation paths and installed-app uninstall registration. tests/windows_smoke.py checks temporary ACL fixtures, bootstrap probes, CSP/encoding behavior, job creation and fixture-only uninstall registration/cancellation/cleanup. Keep further scenarios such as clean provisioning, reboot/crash behavior, adoption, updates/rollback, file transfers and full uninstall explicitly separate from verified coverage. The results report replaces the standalone pending checklist.
 
 ### Completion evidence
 
-Acceptance requires recorded Linux results from the remote VMs, relevant automated results, failure/recovery evidence, sanitized logs, and remaining limitations. Add Windows manual results when supplied. A completed spec is not itself a passing implementation; use the recorded test results and limitations to assess the implementation. Missing SSH access blocks runtime acceptance, not specification authoring, and does not authorize local testing as a substitute.
+Release verification requires recorded Linux results from the remote VMs, Windows runtime results, relevant automated results, failure/recovery evidence and remaining limitations. A completed spec is not itself a passing implementation; use the recorded test results and limitations to assess tested coverage. Missing SSH access does not authorize running Linux acceptance locally. Do not publish credentials, financial records or machine/account details with test evidence.
 
 ## 11. Upstream reference baseline
 

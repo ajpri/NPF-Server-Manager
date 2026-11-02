@@ -20,9 +20,9 @@ import zipfile
 SOURCE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(SOURCE))
 from cli import Client
-from manager import database_info, read_json, set_password, write_json
+from manager import Manager, database_info, read_json, set_password, write_json
 
-DATA=Path('/var/lib/npf')
+DATA=Path('/var/lib/NPF-Server-Manager')
 ARTIFACTS=Path('/home/tester/acceptance')
 PASSWORD='Lab-Manager-Synthetic-26!'
 
@@ -33,12 +33,12 @@ def record(name,detail):
     print(name,detail,flush=True)
 
 
-def wait_status(expected=None,timeout=90):
+def wait_status(expected=None,timeout=90,data=DATA):
     deadline=time.monotonic()+timeout
     last=None
     while time.monotonic()<deadline:
         try:
-            client=Client(DATA,password=PASSWORD)
+            client=Client(data,password=PASSWORD)
             value=client.request('/api/status')
             if expected is None or value['npf']==expected: return client,value
             last=value['npf']
@@ -47,12 +47,13 @@ def wait_status(expected=None,timeout=90):
     raise RuntimeError('State timeout: '+str(last))
 
 
-def install():
-    file=ARTIFACTS/'password-input'; file.write_text(PASSWORD); file.chmod(0o600)
-    args=['sh',str(SOURCE/'installLinux.sh'),'--application-root','/opt/npf','--data',str(DATA),'--package','/home/tester/npf-public.zip','--port','5050','--admin-password-file',str(file),'--certificate-names','localhost,127.0.0.1,npf-test']
+def owner_prompts():
+    return [('Create the required Owner now?', 'y'),('Owner username:', 'synthetic-owner'),('First name (required):','Synthetic'),('Last name (optional):','Owner'),('Password:','Synthetic-NPF-Owner-26!'),('Confirm password:','Synthetic-NPF-Owner-26!'),('Create an optional read-only Auditor?','n')]
+
+
+def terminal_install(args, prompts, log_name):
     pid,fd=pty.fork()
     if pid==0: os.execvp(args[0],args)
-    prompts=[('Create the required Owner now?', 'y'),('Owner username:', 'synthetic-owner'),('First name (required):','Synthetic'),('Last name (optional):','Owner'),('Password:','Synthetic-NPF-Owner-26!'),('Confirm password:','Synthetic-NPF-Owner-26!'),('Create an optional read-only Auditor?','n')]
     buffer=''; transcript=[]; deadline=time.monotonic()+900
     while time.monotonic()<deadline:
         ready,_,_=select.select([fd],[],[],1)
@@ -73,12 +74,22 @@ def install():
     with contextlib.suppress(ChildProcessError):
         _,status=os.waitpid(pid,0)
         if os.waitstatus_to_exitcode(status): raise RuntimeError('Installer failed: '+''.join(transcript)[-4000:])
-    os.close(fd); file.unlink(missing_ok=True)
+    os.close(fd)
     # Terminal transcript must never persist any of the fake passwords either.
     text=''.join(transcript).replace(PASSWORD,'[redacted]').replace('Synthetic-NPF-Owner-26!','[redacted]')
-    (ARTIFACTS/'install.log').write_text(text)
+    (ARTIFACTS/log_name).write_text(text)
+
+
+def install():
+    file=ARTIFACTS/'password-input'; file.write_text(PASSWORD); file.chmod(0o600)
+    args=['sh',str(SOURCE/'installLinux.sh'),'--package','/home/tester/npf-public.zip','--port','5050','--admin-password-file',str(file),'--certificate-names','localhost,127.0.0.1,npf-test']
+    terminal_install(args, [('Application directory', ''), ('Persistent data directory', '')]+owner_prompts(), 'install.log')
+    file.unlink(missing_ok=True)
     client,value=wait_status('running')
     assert value['manager_version']=='26.11'
+    settings = read_json(DATA/'settings.json')
+    assert settings['application_root'] == '/opt/NPF-Server-Manager' and settings['database'] == str(DATA/'finance.db')
+    assert read_json(Path('/etc/npf-manager.json'))['data'] == str(DATA)
     record('installation',{'npf_version':value['version']['applicationVersion'],'service':subprocess.check_output(['systemctl','is-active','npf-manager'],text=True).strip()})
     return client
 
@@ -388,7 +399,7 @@ def github():
 
 
 def uninstall_check():
-    root=Path('/opt/npf'); data=Path('/var/lib/npf')
+    root=Path('/opt/NPF-Server-Manager'); data=Path('/var/lib/NPF-Server-Manager')
     source=SOURCE
     archive=Path('/home/tester/uninstall-lab-snapshot.tar.gz')
     result=Path('/home/tester/uninstall-results.json')
@@ -399,7 +410,7 @@ def uninstall_check():
     assert not (root/'manager/tools').exists() and not (root/'manager/tests').exists()
     subprocess.run(['systemctl','stop','npf-manager'],check=True)
     with tarfile.open(archive,'w:gz') as backup:
-        backup.add(root,arcname='opt/npf'); backup.add(data,arcname='var/lib/npf')
+        backup.add(root,arcname=str(root.relative_to('/'))); backup.add(data,arcname=str(data.relative_to('/')))
     archive.chmod(0o600)
     entries=[['sh',str(source/'installLinux.sh'),'uninstall'],[sys.executable,str(source/'installer.py'),'uninstall']]
     records=[]
@@ -429,11 +440,50 @@ def uninstall_check():
     print(result.read_text())
 
 
+def ownerless_install():
+    root, data = Path('/opt/NPF-Server-Manager-ownerless-test'), Path('/var/lib/NPF-Server-Manager-ownerless-test')
+    assert not root.exists() and not data.exists(), 'Use fresh disposable test paths.'
+    password_file = ARTIFACTS/'ownerless-password-input'
+    password_file.write_text(PASSWORD); password_file.chmod(0o600)
+    try:
+        subprocess.run(['systemctl', 'stop', 'npf-manager'], check=True)
+        args = ['sh', str(SOURCE/'installLinux.sh'), '--application-root', str(root), '--data', str(data),
+                '--package', '/home/tester/npf-public.zip', '--port', '5051', '--npf-port', '5001',
+                '--admin-password-file', str(password_file), '--certificate', str(DATA/'tls/certificate.pem'),
+                '--private-key', str(DATA/'tls/private-key.pem'), '--certificate-names', 'localhost,127.0.0.1']
+        terminal_install(args, [('Create the required Owner now?', 'n')], 'ownerless-install.log')
+        client, value = wait_status('running', data=data)
+        assert read_json(data/'settings.json')['installed'] and value['owner_setup_required'] is True
+        record('ownerless-install', 'Fresh installation completed, systemd service active, HTTPS API reachable and NPF running without an Owner.')
+        terminal_install(['sh', str(SOURCE/'installLinux.sh'), '--data', str(data)], owner_prompts(), 'ownerless-complete.log')
+        client, value = wait_status('running', data=data)
+        assert value['owner_setup_required'] is False and database_info(data/'finance.db')['owner']
+        record('ownerless-completion', 'Rerunning the completed installation offered protected Owner setup; actual Owner creation succeeded and status cleared the warning.')
+    finally:
+        password_file.unlink(missing_ok=True)
+        # Restore the independent original synthetic service before removing temporary fixture paths.
+        subprocess.run([sys.executable, str(SOURCE/'installer.py'), '--data', str(DATA)], check=True)
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(data, ignore_errors=True)
+
+
+def ownerless_fixture():
+    # Build an empty database through upstream initialization, retaining its Owner safeguards.
+    manager = Manager(DATA)
+    target = ARTIFACTS/'ownerless.db'
+    target.unlink(missing_ok=True)
+    manager.bridge('validate-db', database=target)
+    assert not database_info(target)['owner']
+    target.chmod(0o644)
+    record('ownerless-fixture', 'Fresh synthetic database initialized without an Owner for browser acceptance.')
+
+
 def main():
     phases = {'install': install, 'runtime': runtime, 'boot': boot, 'stable': stable,
               'failure': fail, 'interrupt': interrupt, 'reboot': lambda: interrupt(True),
               'resume': resume, 'manager-failure': manager_failure, 'github': github,
-              'adoption': adoption, 'privileged-port': privileged_port, 'uninstall': uninstall_check}
+              'adoption': adoption, 'privileged-port': privileged_port, 'uninstall': uninstall_check,
+              'ownerless-fixture': ownerless_fixture, 'ownerless-install': ownerless_install}
     parser = argparse.ArgumentParser(description='Remote disposable Linux guest acceptance checks')
     parser.add_argument('phase', choices=phases)
     args = parser.parse_args()

@@ -16,9 +16,53 @@ import sys
 import tempfile
 import time
 
-from manager import DEFAULT_DATA, HERE, VERSION, InstanceLock, Manager, ManagerError, atomic, database_info, metadata, private_dir, python_for, read_json, set_password, snapshot, write_json
+from manager import DEFAULT_DATA, HERE, VERSION, InstanceLock, Manager, ManagerError, atomic, database_info, metadata, npf_command, private_dir, python_for, read_json, set_password, snapshot, write_json
 
 FILES=['manager.py','server.py','cli.py','npf_bridge.py','windows_service.py','installer.py','installLinux.sh','installWindows.bat','installWindows.ps1','requirements.txt','index.html','README.md','SPEC.md','VERSION']
+WINDOWS_UNINSTALL_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\NPFServerManager'
+
+
+def register_windows_uninstall(root):
+    import winreg
+    # The unelevated Installed Apps process needs only traversal and permission
+    # to read the elevation launcher, never private settings or NPF files.
+    for directory in (root, root/'manager'):
+        subprocess.run(['icacls', str(directory), '/grant:r', '*S-1-5-32-545:(X)'],
+                       check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(['icacls', str(root/'manager/uninstallWindows.ps1'),
+                    '/grant:r', '*S-1-5-32-545:R'], check=True, stdout=subprocess.DEVNULL)
+    powershell = Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
+    values = {
+        'DisplayName': 'NPF Server Manager',
+        'DisplayVersion': VERSION,
+        'Publisher': 'No Part Finance',
+        'InstallLocation': str(root),
+        'UninstallString': subprocess.list2cmdline([
+            str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', str(root/'manager/uninstallWindows.ps1')]),
+    }
+    with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, WINDOWS_UNINSTALL_KEY, 0,
+                            winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY) as key:
+        for name, value in values.items():
+            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+        for name in ('NoModify', 'NoRepair'):
+            winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, 1)
+
+
+def windows_cleanup_script(root, owned, process_id):
+    def literal(value):
+        return "'"+str(value).replace("'", "''")+"'"
+    script = "$ErrorActionPreference='Stop'; $p=Get-Process -Id "+str(process_id)+" -ErrorAction SilentlyContinue; if($p){$p.WaitForExit()}; "
+    failure_log=Path(os.environ.get('TEMP',os.environ['SystemRoot']))/('NPF-uninstall-'+str(process_id)+'.log')
+    script += 'try { '
+    for path in owned:
+        script += '$deadline=(Get-Date).AddSeconds(120); while(Test-Path -LiteralPath '+literal(path)+'){try{Remove-Item -LiteralPath '+literal(path)+' -Recurse -Force}catch{if((Get-Date) -ge $deadline){throw}; Start-Sleep -Milliseconds 500}}; '
+    script += 'if((Test-Path -LiteralPath '+literal(root)+') -and -not (Get-ChildItem -LiteralPath '+literal(root)+' -Force | Select-Object -First 1)){Remove-Item -LiteralPath '+literal(root)+'}; '
+    # Keep the Installed Apps entry if managed-file cleanup fails.
+    registry_path = 'Registry::HKEY_LOCAL_MACHINE\\'+WINDOWS_UNINSTALL_KEY
+    script += 'if(Test-Path -LiteralPath '+literal(registry_path)+'){Remove-Item -LiteralPath '+literal(registry_path)+' -Force}; '
+    script += '} catch { $_ | Out-File -LiteralPath '+literal(failure_log)+' -Encoding utf8; exit 1 };'
+    return script, failure_log
 
 
 def ask(prompt, default=None):
@@ -79,6 +123,19 @@ def linux_identity(root,data):
     return user
 
 
+def windows_permissions(location, access):
+    """Restrict the root, then let descendants inherit its effective ACL."""
+    location = Path(location)
+    # /T with (OI)(CI) grants can leave files with an empty DACL: those
+    # inheritance flags apply to directories. Set them on the root only.
+    subprocess.run(['icacls',str(location),'/inheritance:r','/grant:r',
+                    '*S-1-5-32-544:(OI)(CI)F','*S-1-5-18:(OI)(CI)F',
+                    '*S-1-5-19:(OI)(CI)'+access],check=True,stdout=subprocess.DEVNULL)
+    if any(location.iterdir()):
+        subprocess.run(['icacls',str(location/'*'),'/reset','/T','/Q'],
+                       check=True,stdout=subprocess.DEVNULL)
+
+
 def service(root,data,settings):
     code=root/'manager'
     if os.name!='nt':
@@ -117,13 +174,21 @@ ReadWritePaths='''+quoted(data)+' '+quoted(root/'releases')+'''\n\n[Install]\nWa
         subprocess.run([str(runtime_python),'-m','pip','install','-r',str(code/'requirements.txt')],check=True)
         # Administrators, SYSTEM and LocalService only; language-independent SIDs.
         for location,access in [(root,'RX'),(root/'releases','M'),(data,'M')]:
-            subprocess.run(['icacls',str(location),'/inheritance:r','/grant:r','*S-1-5-32-544:(OI)(CI)F','*S-1-5-18:(OI)(CI)F','*S-1-5-19:(OI)(CI)'+access,'/T','/Q'],check=True,stdout=subprocess.DEVNULL)
+            windows_permissions(location, access)
         locator=Path(os.environ['PROGRAMDATA'])/'NPF-Server-Manager.json'
         atomic(locator,json.dumps({'data':str(data),'application_root':str(root)}))
         action='update' if subprocess.run(['sc.exe','query','NPFServerManager'],capture_output=True).returncode==0 else 'install'
         subprocess.run([str(runtime_python),str(code/'windows_service.py'),'--startup','auto','--username','NT AUTHORITY\\LocalService',action],check=True)
         subprocess.run(['sc.exe','failure','NPFServerManager','reset=','86400','actions=','restart/5000/restart/5000/restart/5000'],check=True)
         subprocess.run(['sc.exe','start','NPFServerManager'],check=True)
+        import win32service
+        import win32serviceutil
+        win32serviceutil.WaitForServiceStatus('NPFServerManager',win32service.SERVICE_RUNNING,30)
+        # SCM accepts a start request before the Python host has initialized.
+        time.sleep(1)
+        status=win32serviceutil.QueryServiceStatus('NPFServerManager')
+        if status[1]!=win32service.SERVICE_RUNNING:
+            raise ManagerError(f'Windows service stopped during startup (Win32 exit {status[3]}, service exit {status[4]}). Inspect the NPFServerManager Application event log.')
         atomic(root/'npf-manager.bat','@echo off\n"'+str(runtime_python)+'" "'+str(code/'cli.py')+'" --data "'+str(data)+'" %*\n')
 
 
@@ -216,16 +281,9 @@ def uninstall(data, yes=False):
     owned = [data, *(root/name for name in ('manager', 'manager.previous', 'manager.new', 'releases', 'runtime', 'npf-manager.bat'))]
     if os.name == 'nt':
         # Windows locks the running Python/CLI. An OS-provided helper removes them after this process exits.
-        owned.append(Path(os.environ['PROGRAMDATA'])/'NPF-InstallerRuntime')
-        def literal(value):
-            return "'"+str(value).replace("'", "''")+"'"
-        script = "$ErrorActionPreference='Stop'; $p=Get-Process -Id "+str(os.getpid())+" -ErrorAction SilentlyContinue; if($p){$p.WaitForExit()}; "
-        failure_log=Path(os.environ.get('TEMP',os.environ['SystemRoot']))/('NPF-uninstall-'+str(os.getpid())+'.log')
-        script += 'try { '
-        for path in owned:
-            script += '$deadline=(Get-Date).AddSeconds(120); while(Test-Path -LiteralPath '+literal(path)+'){try{Remove-Item -LiteralPath '+literal(path)+' -Recurse -Force}catch{if((Get-Date) -ge $deadline){throw}; Start-Sleep -Milliseconds 500}}; '
-        script += 'if((Test-Path -LiteralPath '+literal(root)+') -and -not (Get-ChildItem -LiteralPath '+literal(root)+' -Force | Select-Object -First 1)){Remove-Item -LiteralPath '+literal(root)+'}; '
-        script += '} catch { $_ | Out-File -LiteralPath '+literal(failure_log)+' -Encoding utf8; exit 1 };'
+        owned.extend(Path(os.environ['PROGRAMDATA'])/name for name in
+                     ('NPF-Server-Manager-InstallerRuntime', 'NPF-InstallerRuntime'))
+        script, failure_log = windows_cleanup_script(root, owned, os.getpid())
         command = base64.b64encode(script.encode('utf-16le')).decode('ascii')
         subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', command], creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, cwd=os.environ['SystemRoot'])
         print('Service removed. File cleanup completes after this command exits. Cleanup errors, if any: '+str(failure_log))
@@ -283,7 +341,7 @@ def main():
         if args.application_root and args.application_root.resolve()!=root: raise ManagerError('Installer updates retain selected paths; migration is a separate operation.')
         settings=existing
     else:
-        root=(args.application_root or Path(ask('Application directory',str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'NPF') if os.name=='nt' else '/opt/npf'))).resolve()
+        root=(args.application_root or Path(ask('Application directory',str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'NPF-Server-Manager') if os.name=='nt' else '/opt/NPF-Server-Manager'))).resolve()
         if args.data is None:
             data=Path(ask('Persistent data directory',str(data))).resolve()
             if (data/'settings.json').exists(): raise ManagerError('Selected data location already has settings; rerun with --data.')
@@ -348,16 +406,17 @@ def main():
                             package=Path(ask('Local NPF ZIP path'))
                     item=manager.prepare(package,package_origin)
                 manager.state['active']=item; manager.save(); manager.sync_configuration()
-            needs_setup=not manager.database.exists() or not database_info(manager.database)['owner']
-            if needs_setup:
-                command=[str(python_for(manager.release())),str(HERE/'npf_bridge.py'),'setup',str(manager.app()),str(manager.database),str(manager.app()),str(settings['npf_port'])]
-                subprocess.run(command,check=True)
-                if not database_info(manager.database)['owner']: raise ManagerError('Owner setup incomplete; rerun to resume.')
-                manager.sync_configuration(False)
-        # Publish manager files only after initial NPF setup is complete.
+        needs_setup=not manager.database.exists() or not database_info(manager.database)['owner']
+        if needs_setup:
+            command=npf_command(manager.release(),HERE/'npf_bridge.py','setup',manager.app(),manager.database,manager.app(),settings['npf_port'])
+            subprocess.run(command,check=True)
+            if not database_info(manager.database)['owner']:
+                print('No NPF Owner is set up. Services will start; rerun this installer to complete Owner setup before signing in to NPF.')
+            manager.sync_configuration(False)
+        # Publish the manager even when Owner creation was deferred.
         pending=root/'manager.new'
         shutil.rmtree(pending,ignore_errors=True); pending.mkdir()
-        for name in FILES:
+        for name in FILES + (['uninstallWindows.ps1'] if os.name == 'nt' else []):
             source=HERE/name
             if source.exists(): shutil.copyfile(source,pending/name)
         backup=root/'manager.previous'
@@ -382,6 +441,8 @@ def main():
     write_json(root/'manager/installation.json', {'application_root':str(root.resolve()), 'data':str(data.resolve()), 'database':str(Path(settings['database']).resolve()), 'created_service_account':settings.get('created_service_account',False)})
     settings['installed']=True
     write_json(data/'settings.json',settings)
+    if os.name == 'nt':
+        register_windows_uninstall(root)
     print('NPF Server Manager '+VERSION+' installed. HTTPS port '+str(settings['port'])+'.')
     print('Trust certificate: '+settings['certificate']+'. Include the server LAN name/IP in certificate identities.')
     print('CLI: '+('/usr/local/bin/npf-manager' if os.name!='nt' else str(root/'npf-manager.bat')))

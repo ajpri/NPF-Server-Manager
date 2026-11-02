@@ -29,8 +29,6 @@ def main():
             connection.configuration = application.config['PLATFORM_CONFIGURATION']
             connection.operationalLogs = application.config['OPERATIONAL_LOGS']
             configureOnStartup(connection)
-            if not connection.execute("SELECT 1 FROM ledgerAccess WHERE role='owner'").fetchone():
-                raise RuntimeError('Owner setup incomplete; rerun the installer to resume.')
         return
     if mode != 'run':
         raise RuntimeError('Unknown bridge operation.')

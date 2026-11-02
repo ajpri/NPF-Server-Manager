@@ -1,0 +1,91 @@
+{
+  "source_baseline": "937c9c8",
+  "version": "26.11",
+  "environment": "Remote disposable QEMU guests only",
+  "guests": {
+    "debian": {
+      "application_root": "/opt/NPF-Server-Manager",
+      "persistent_data": "/var/lib/NPF-Server-Manager",
+      "fresh_prompted_defaults": true,
+      "legacy_default_directories_absent": true,
+      "installed_manifest_paths": true,
+      "systemd_paths": true,
+      "cli_default_discovery": true,
+      "launcher_paths": true,
+      "automatic_service_enabled": true,
+      "reboot_startup": true,
+      "manager_update_preserved_paths_and_intentional_stop": true,
+      "npf_running": true,
+      "regression_tests": 39,
+      "regression_seconds": 37.979,
+      "uninstall": {
+        "installer_uninstall_checks": [
+          {
+            "entry_point": "installLinux.sh",
+            "installed_python_modules": 6,
+            "development_helpers_not_installed": true,
+            "noninteractive_confirmation_required": true,
+            "running_service_stopped_and_removed": true,
+            "application_and_manager_removed": true,
+            "database_configuration_backups_and_keys_removed": true,
+            "launcher_and_locator_removed": true,
+            "lab_installation_restored_after_verification": true
+          },
+          {
+            "entry_point": "installer.py",
+            "installed_python_modules": 6,
+            "development_helpers_not_installed": true,
+            "noninteractive_confirmation_required": true,
+            "running_service_stopped_and_removed": true,
+            "application_and_manager_removed": true,
+            "database_configuration_backups_and_keys_removed": true,
+            "launcher_and_locator_removed": true,
+            "lab_installation_restored_after_verification": true
+          }
+        ]
+      }
+    },
+    "fedora": {
+      "application_root": "/opt/NPF-Server-Manager",
+      "persistent_data": "/var/lib/NPF-Server-Manager",
+      "fresh_prompted_defaults": true,
+      "legacy_default_directories_absent": true,
+      "installed_manifest_paths": true,
+      "systemd_paths": true,
+      "cli_default_discovery": true,
+      "launcher_paths": true,
+      "automatic_service_enabled": true,
+      "reboot_startup": true,
+      "manager_update_preserved_paths_and_intentional_stop": true,
+      "npf_running": true,
+      "regression_tests": 39,
+      "regression_seconds": 41.132,
+      "uninstall": {
+        "installer_uninstall_checks": [
+          {
+            "entry_point": "installLinux.sh",
+            "installed_python_modules": 6,
+            "development_helpers_not_installed": true,
+            "noninteractive_confirmation_required": true,
+            "running_service_stopped_and_removed": true,
+            "application_and_manager_removed": true,
+            "database_configuration_backups_and_keys_removed": true,
+            "launcher_and_locator_removed": true,
+            "lab_installation_restored_after_verification": true
+          },
+          {
+            "entry_point": "installer.py",
+            "installed_python_modules": 6,
+            "development_helpers_not_installed": true,
+            "noninteractive_confirmation_required": true,
+            "running_service_stopped_and_removed": true,
+            "application_and_manager_removed": true,
+            "database_configuration_backups_and_keys_removed": true,
+            "launcher_and_locator_removed": true,
+            "lab_installation_restored_after_verification": true
+          }
+        ]
+      }
+    }
+  }
+}

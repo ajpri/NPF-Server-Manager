@@ -1,0 +1,5 @@
+ownerless-install Fresh installation completed, systemd service active, HTTPS API reachable and NPF running without an Owner.
+ownerless-completion Rerunning the completed installation offered protected Owner setup; actual Owner creation succeeded and status cleared the warning.
+NPF Server Manager 26.11 installed. HTTPS port 5050.
+Trust certificate: /var/lib/npf/tls/certificate.pem. Include the server LAN name/IP in certificate identities.
+CLI: /usr/local/bin/npf-manager

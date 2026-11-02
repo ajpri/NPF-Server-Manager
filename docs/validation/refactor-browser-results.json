@@ -1,0 +1,18 @@
+{
+  "login": true,
+  "database_and_configuration_downloads": true,
+  "cancelled_zip_leaves_live_files_unchanged": true,
+  "configuration_upload_and_restart": true,
+  "restart_button": true,
+  "full_package_includes_all_ledgers_and_credentials": true,
+  "database_upload_confirm_and_replace": true,
+  "combined_upload_either_or_both_one_button": true,
+  "zip_upload_confirm_and_update": true,
+  "current_plus_two_previous_versions": true,
+  "restore_confirmation_backup_date_download_cancel_and_apply": true,
+  "no_keep_current_database_checkbox": true,
+  "no_staged_or_recovery_lists": true,
+  "narrow_layout_without_page_overflow": true,
+  "javascript_errors": [],
+  "https_certificate_verified": true
+}

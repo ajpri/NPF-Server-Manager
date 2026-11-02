@@ -1,0 +1,2 @@
+reboot Manager and NPF start automatically, clearing intentional Stop.
+manager-update Rerun preserves NPF active version, password, certificate and intentional Stop.

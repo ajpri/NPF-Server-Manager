@@ -1,0 +1,4 @@
+# Linux manager uses the Python standard library plus the OS openssl command.
+# Windows uses pywin32 for the Service Control Manager and cryptography for TLS certificate generation.
+pywin32>=306; sys_platform == 'win32'
+cryptography>=42; sys_platform == 'win32'

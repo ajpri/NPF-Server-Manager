@@ -1,0 +1,24 @@
+{"scenario": "installation", "detail": {"npf_version": "26.10.30", "service": "active"}, "time": 1793583366.7530363}
+{"scenario": "intentional-stop", "detail": "Survives manager service restart.", "time": 1793583368.095636}
+{"scenario": "password-reset", "detail": "Old session rejected; service can read new hash.", "time": 1793583368.5267487}
+{"scenario": "transfers", "detail": "Full DB exported/replaced; config applied without restart; backup copies retained.", "time": 1793583369.5229268}
+{"scenario": "cli", "detail": "Authenticated status/database+config download/config stage+replace passed.", "time": 1793583370.171302}
+{"scenario": "updates-and-rollback", "detail": "Three synthetic version updates; current + 2 history; bundled files ignored; code-only rollback passed.", "time": 1793583389.1695251}
+{"scenario": "intentional-stop", "detail": "Survives manager service restart.", "time": 1793583851.1805983}
+{"scenario": "password-reset", "detail": "Old session rejected; service can read new hash.", "time": 1793583851.705438}
+{"scenario": "transfers", "detail": "Full DB exported/replaced; config applied without restart; backup copies retained.", "time": 1793583853.2523024}
+{"scenario": "cli", "detail": "Authenticated status/database+config download/config stage+replace passed.", "time": 1793583853.9504452}
+{"scenario": "updates-and-rollback", "detail": "Three synthetic version updates; current + 2 history; bundled files ignored; code-only rollback passed.", "time": 1793583870.561682}
+{"scenario": "crash-limit", "detail": {"delays_seconds": [11.28, 11.27, 11.28], "state": "failed after third restart and fourth crash"}, "time": 1793583914.766602}
+{"scenario": "explicit-start-reset", "detail": "Restart attempts reset.", "time": 1793583915.0786557}
+{"scenario": "pre-reboot", "detail": "NPF intentionally stopped; next boot must start it.", "time": 1793583915.5823915}
+{"scenario": "reboot", "detail": "Manager and NPF start automatically, clearing intentional Stop.", "time": 1793584041.2921576}
+{"scenario": "manager-update", "detail": "Rerun preserves NPF active version, password, certificate and intentional Stop.", "time": 1793584044.1264389}
+{"scenario": "actual-failed-update", "detail": "Synthetic app changed schema to 999 then failed; outgoing code/config/full DB restored; staged input retained.", "time": 1793584132.076211}
+{"scenario": "interrupt-injected", "detail": "Rebooting disposable guest during journaled update startup.", "time": 1793584136.2585547}
+{"scenario": "interrupted-update-recovery", "detail": {"mode": "VM reboot", "previous_active_restored": true, "database_valid": true, "manager_available": true}, "time": 1793584264.463301}
+{"scenario": "stable-reset", "detail": {"seconds_observed": 300.1, "restart_attempts": 0}, "time": 1793584575.698208}
+{"scenario": "github-staging", "detail": {"version": "26.10.30", "checksum_verified": true, "active_unchanged": true}, "time": 1793584613.626297}
+{"scenario": "manager-update-failure", "detail": "Broken candidate manager rejected; previous service restored; NPF active version, password and certificate preserved.", "time": 1793585158.5908866}
+{"scenario": "manager-update-failure", "detail": "Broken candidate manager rejected; previous service restored; NPF active version, password and certificate preserved.", "time": 1793585226.0801136}
+{"scenario": "actual-snapshot-rollback", "detail": "Outgoing snapshot associated with history; snapshot rollback returns to original active version.", "time": 1793585227.5748174}

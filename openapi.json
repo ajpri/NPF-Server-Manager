@@ -1,0 +1,1922 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NPF Server Manager REST API",
+    "version": "26.11",
+    "description": "Local/LAN administrative HTTPS API for NPF Server Manager 26.11. This is a description of the implemented handlers, not a public finance/ledger API.\n\n### Connecting and authentication\nUse TLS 1.2 or later and trust the supplied/generated certificate, including hostname/IP verification. POST /api/login with the manager password (8–128 characters). Send the returned opaque token as `Authorization: Bearer TOKEN`, or use the returned `npf_session` cookie. Cookie-authenticated POST requests additionally need `X-CSRF-Token` from login or GET /api/session. Tokens last one hour without refresh and are invalid after manager restart, password reset, logout or session-cap eviction. At most 100 sessions are retained.\n\nPOST requests also reject a supplied Origin that differs from `https://` plus Host, and Sec-Fetch-Site: cross-site, including requests with bearer authentication. No CORS is enabled. Use a direct HTTPS client/CLI for API calls. An externally hosted Swagger UI can read this file, but cross-origin Try it out requests are not supported by the server.\n\n### Request framing and limits\nEvery POST requires exactly one decimal Content-Length, including JSON {}. Transfer-Encoding/chunked requests are rejected. Let your HTTP client calculate Content-Length. Uploads contain raw file bytes, never multipart/form-data or base64 JSON. JSON bodies must be objects and default to at most 65,536 bytes. Default upload limits: application/database 536,870,912 bytes (512 MiB), configuration 1,048,576 bytes (1 MiB); application/database limits can be configured. ZIP extraction defaults to 2 GiB and 20,000 entries. Up to 16 workers are admitted; socket timeout is 30 seconds and upload deadline five minutes. Actions are synchronous; dependency preparation/startup can take minutes. Allow up to 15 minutes before treating a client timeout as failure. After disconnect/timeout, query status before retrying; there are no job IDs or idempotency keys.\n\n### Direct HTTPS client examples\nCreate a protected /safe/login.json containing {\"password\":\"YOUR_MANAGER_PASSWORD\"}; keep it and returned tokens out of logs. Use the server's trusted public certificate/CA. The placeholders below are illustrative. Let curl compute Content-Length.\n\n```sh\ncurl --fail-with-body --cacert /safe/manager-ca.pem \\\n  -H 'Content-Type: application/json' --data-binary @/safe/login.json \\\n  https://finance.example.lan:5050/api/login\n```\n\nCopy the returned token into a protected client environment as TOKEN, then query status or stage a ZIP:\n\n```sh\ncurl --fail-with-body --cacert /safe/manager-ca.pem \\\n  -H \"Authorization: Bearer $TOKEN\" https://finance.example.lan:5050/api/status\ncurl --fail-with-body --max-time 900 --cacert /safe/manager-ca.pem \\\n  -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/octet-stream' \\\n  --data-binary @/safe/NPF.zip https://finance.example.lan:5050/api/stage/application\n```\n\nThe stage response id is used in the JSON apply body; this is a separate explicit installation action:\n\n```sh\ncurl --fail-with-body --max-time 900 --cacert /safe/manager-ca.pem \\\n  -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' \\\n  --data '{\"id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}' \\\n  https://finance.example.lan:5050/api/action/apply\n```\n\n### Workflows and recovery\nApplication update: stage/application or action/github, then action/apply with its staged ID. File replacement: stage/database and/or stage/configuration, then action/replace-files for a single backed-up restart, or the separate replacement endpoints for an explicit restart choice. Uploading alone never changes live files. Retained failed candidates are available until applied/deleted. Downloads include private installation data. finance.db/full-package exports contain every ledger and credentials. platform.conf may contain SMTP credentials.\n\nRestore: optionally download/application, select history[].id from status, then action/rollback with confirmed=true. Restore always uses the matching database backup; history[].snapshot_time is Unix time. Current configuration is preserved and the current state is backed up automatically first. A successful update retains current plus two previous verified versions; independent recovery copies persist until explicitly deleted.\n\n### Responses and implementation boundaries\nHandled API errors are JSON {\"error\":\"...\"}. POST lock contention is 409; GET download lock contention is 400. Validation/confirmation/recovery errors are normally 400, authentication and browser CSRF failures 401, login throttling 429 and unexpected failures 500. Some missing required fields/nonexistent retained IDs currently surface as 500. Unknown authenticated routes are 404, unknown action names 400. Base HTTP parsing/unsupported-method errors may be HTML (for example 501), outside these JSON handlers. File download failures after headers can terminate a response; verify its length/archive integrity. No password-reset, installer-update or uninstall endpoint exists: privileged password reset, manager installation/update and full removal are local commands only.\n\nThis openapi.json is a repository documentation artifact. The application does not serve it or host interactive API documentation. All example IDs, hashes, tokens and times are illustrative."
+  },
+  "servers": [
+    {
+      "url": "https://{host}:{port}",
+      "description": "Use the actual server name/IP present in its trusted TLS certificate.",
+      "variables": {
+        "host": {
+          "default": "localhost"
+        },
+        "port": {
+          "default": "5050"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Authentication"
+    },
+    {
+      "name": "Status"
+    },
+    {
+      "name": "Process control"
+    },
+    {
+      "name": "Uploads"
+    },
+    {
+      "name": "Downloads"
+    },
+    {
+      "name": "Files"
+    },
+    {
+      "name": "Updates and restore"
+    },
+    {
+      "name": "Web UI"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "cookieAuth": []
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "getManagementPage",
+        "tags": [
+          "Web UI"
+        ],
+        "summary": "Read the fixed login/management HTML page",
+        "description": "Public HTML shell only; its authenticated actions use the API below. No generic assets, directory listing, /docs or /openapi.json endpoint is served.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Single-file HTML/CSS/JavaScript UI.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/login": {
+      "post": {
+        "operationId": "login",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Create a one-hour manager session",
+        "description": "Returns an opaque bearer token and a CSRF token and sets npf_session. Use either bearer authentication or cookie authentication, not both. Sessions live in memory: manager restart, password reset, logout, expiry or session-cap eviction invalidates them. Login has no CSRF requirement, but Origin/Sec-Fetch-Site checks still apply. Attempts are counted before password verification: five per client IP and 100 aggregate in ten minutes; successful login clears that client's failure queue.",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "example": {
+                "password": "EXAMPLE-ONLY-CHANGE-ME"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                },
+                "example": {
+                  "token": "EXAMPLE_OPAQUE_TOKEN",
+                  "csrf": "EXAMPLE_CSRF_TOKEN",
+                  "expires_in": 3600
+                }
+              }
+            },
+            "headers": {
+              "Set-Cookie": {
+                "description": "npf_session=TOKEN; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=3600",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "operationId": "getSession",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get the current session CSRF token",
+        "description": "Does not renew the session or extend its expiry. Useful for the same-origin browser UI after reloading.",
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                },
+                "example": {
+                  "csrf": "EXAMPLE_CSRF_TOKEN"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "operationId": "logout",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Invalidate the current token/session",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "Signed out."
+                }
+              }
+            },
+            "headers": {
+              "Set-Cookie": {
+                "description": "Expires the npf_session cookie with Max-Age=0.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "getStatus",
+        "tags": [
+          "Status"
+        ],
+        "summary": "Read process state, versions, candidate IDs and recovery copies",
+        "description": "All times are Unix seconds. Use active/history IDs to identify releases and staged IDs to apply uploads; version labels are not IDs. result is descriptive text rather than a machine status code. Status does not acquire the operation lock and can reflect an operation in progress.",
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                },
+                "example": {
+                  "manager_version": "26.11",
+                  "npf": "running",
+                  "operation": null,
+                  "active": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "version": {
+                    "applicationVersion": "26.10.30",
+                    "schemaVersion": 30,
+                    "time": 1793600000.0,
+                    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "origin": "Illustrative local release; publisher unverified"
+                  },
+                  "result": "NPF running.",
+                  "pending_configuration": false,
+                  "restart_attempts": 0,
+                  "history": [
+                    {
+                      "applicationVersion": "26.10.30",
+                      "schemaVersion": 30,
+                      "time": 1793600000.0,
+                      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                      "origin": "Illustrative local release; publisher unverified",
+                      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                      "snapshot": true,
+                      "snapshot_time": 1793500000.0
+                    }
+                  ],
+                  "staged": [],
+                  "recovery": []
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/stage/application": {
+      "post": {
+        "operationId": "stageApplication",
+        "tags": [
+          "Uploads"
+        ],
+        "summary": "Validate and retain an NPF ZIP candidate",
+        "description": "Raw ZIP only, not multipart. Validate safe paths, archive limits and literal version/schema metadata; prepare dependencies only on apply. Bundled finance.db/platform.conf are ignored when updating; current live files carry forward. Local SHA-256 identifies bytes but does not prove publisher authenticity. Uploading never changes live files or restarts NPF. The returned candidate persists until applied or explicitly deleted.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Entire raw file body with an automatically calculated Content-Length. The size limit counts bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "description": "Unencoded file bytes, not a JSON string or base64.",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
+        "x-default-max-upload-bytes": 536870912,
+        "responses": {
+          "201": {
+            "description": "Validated candidate retained; its id identifies the future apply/replace request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedItem"
+                },
+                "example": {
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "application",
+                  "time": 1793600000.0,
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "origin": "local; publisher unverified",
+                  "applicationVersion": "26.10.30",
+                  "schemaVersion": 30
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/stage/database": {
+      "post": {
+        "operationId": "stageDatabase",
+        "tags": [
+          "Uploads"
+        ],
+        "summary": "Validate and retain a full finance.db candidate",
+        "description": "Raw SQLite file only, not multipart. Must be a full supported NPF installation database; selected-ledger browser exports are unsuitable. Candidate validation uses a disposable copy with the active NPF release. Newer/unsupported schema is rejected without modifying live data. The response reports owner; staging can succeed with owner=false, but NPF startup requires an Owner, so retain working Owner state in replacements. Uploading never changes live files or restarts NPF. The returned candidate persists until applied or explicitly deleted.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Entire raw file body with an automatically calculated Content-Length. The size limit counts bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "description": "Unencoded file bytes, not a JSON string or base64.",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
+        "x-default-max-upload-bytes": 536870912,
+        "responses": {
+          "201": {
+            "description": "Validated candidate retained; its id identifies the future apply/replace request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedItem"
+                },
+                "example": {
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "database",
+                  "time": 1793600000.0,
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "origin": "local; publisher unverified",
+                  "schema": 30,
+                  "owner": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/stage/configuration": {
+      "post": {
+        "operationId": "stageConfiguration",
+        "tags": [
+          "Uploads"
+        ],
+        "summary": "Validate and retain a platform.conf candidate",
+        "description": "Raw UTF-8 configuration file only, not multipart. Validation uses the active NPF release and does not apply or restart NPF. Uploading never changes live files or restarts NPF. The returned candidate persists until applied or explicitly deleted.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Entire raw file body with an automatically calculated Content-Length. The size limit counts bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "description": "Unencoded file bytes, not a JSON string or base64.",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
+        "x-default-max-upload-bytes": 1048576,
+        "responses": {
+          "201": {
+            "description": "Validated candidate retained; its id identifies the future apply/replace request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedItem"
+                },
+                "example": {
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "configuration",
+                  "time": 1793600000.0,
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "origin": "local; publisher unverified"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/download/application": {
+      "get": {
+        "operationId": "downloadApplication",
+        "tags": [
+          "Downloads"
+        ],
+        "summary": "Download the full current NPF application package",
+        "description": "ZIP containing currently installed NPF application files, a verified consistent snapshot of the entire actual finance.db, and current platform.conf if present. Includes all ledgers, password hashes and integration secrets; this is not NPF's selected-ledger/credential-free export. Excludes virtual environments, caches, logs, nested backups, manager authentication and TLS keys. The complete archive is built under the operation lock before streaming; downloads do not restart NPF.",
+        "responses": {
+          "200": {
+            "description": "Complete file download; the response is not JSON. Temporary exports are removed after completion/disconnect.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "attachment; filename=\"NPF-full-package.zip\""
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "Byte length of the fully prepared file."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "description": "Unencoded file bytes.",
+                  "contentMediaType": "application/zip"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/download/database": {
+      "get": {
+        "operationId": "downloadDatabase",
+        "tags": [
+          "Downloads"
+        ],
+        "summary": "Download the entire current finance.db",
+        "description": "Verified consistent SQLite snapshot using the backup API, including all ledgers, users, memberships, passwords and integration secrets. The database remains available to NPF while the snapshot is made. Does not restart NPF.",
+        "responses": {
+          "200": {
+            "description": "Complete file download; the response is not JSON. Temporary exports are removed after completion/disconnect.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "attachment; filename=\"finance.db\""
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "Byte length of the fully prepared file."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "Unencoded file bytes.",
+                  "contentMediaType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/download/configuration": {
+      "get": {
+        "operationId": "downloadConfiguration",
+        "tags": [
+          "Downloads"
+        ],
+        "summary": "Download current runtime platform.conf",
+        "description": "Returns the actual configured runtime file, preserving contents; it may contain SMTP credentials. Returns 404 when absent instead of returning sample configuration. Does not restart NPF.",
+        "responses": {
+          "200": {
+            "description": "Complete file download; the response is not JSON. Temporary exports are removed after completion/disconnect.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "attachment; filename=\"platform.conf\""
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "Byte length of the fully prepared file."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "no-store"
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "Unencoded file bytes.",
+                  "contentMediaType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/action/start": {
+      "post": {
+        "operationId": "Start",
+        "tags": [
+          "Process control"
+        ],
+        "summary": "Start NPF",
+        "description": "Explicit Start resets the crash retry limit/failed latch. Already running is harmless. Completes any deferred update startup verification; a failed candidate is recovered before returning a failure.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "NPF running."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/stop": {
+      "post": {
+        "operationId": "Stop",
+        "tags": [
+          "Process control"
+        ],
+        "summary": "Stop NPF intentionally",
+        "description": "Keeps the manager/API available. Intentional Stop survives ordinary manager restarts until Start, Restart, explicit upload-and-restart or OS reboot. Stop is the only action allowed while an unresolved recovery journal exists.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "NPF intentionally stopped until Start or reboot."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/restart": {
+      "post": {
+        "operationId": "Restart",
+        "tags": [
+          "Process control"
+        ],
+        "summary": "Restart or start NPF",
+        "description": "Controlled NPF stop/start without restarting the manager service. Starts NPF if stopped and resets the retry limit/failed latch. Can verify a pending update.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "NPF running."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/github": {
+      "post": {
+        "operationId": "stageGithubRelease",
+        "tags": [
+          "Updates and restore"
+        ],
+        "summary": "Download and stage the latest stable GitHub release",
+        "description": "Selects the published stable application-only ZIP, excluding drafts/prereleases, and verifies the matching published SHA-256 asset. Missing/mismatched checksum is rejected. Returns a candidate, not an installed update; follow with apply. No automatic NPF restart.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedItem"
+                },
+                "example": {
+                  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "application",
+                  "time": 1793600000.0,
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "origin": "GitHub v26.10.30; SHA-256 verified",
+                  "applicationVersion": "26.10.30",
+                  "schemaVersion": 30
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/apply": {
+      "post": {
+        "operationId": "applyApplication",
+        "tags": [
+          "Updates and restore"
+        ],
+        "summary": "Install a staged application ZIP",
+        "description": "Prepares isolated dependencies, stops NPF, captures outgoing code/configuration plus mandatory full finance.db, then carries current database/configuration forward. Ignores bundled replacements. Previously running NPF is checked/restarted; a stopped NPF stays stopped with verification deferred until Start/Restart. Verified retention is current plus two prior releases. During deferred verification further apply/restore/replace/delete actions are rejected; start/restart/stop/github remain available. Failure attempts full recovery and retains the failed candidate.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              },
+              "example": {
+                "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "Application updated."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/rollback": {
+      "post": {
+        "operationId": "restoreVersion",
+        "tags": [
+          "Updates and restore"
+        ],
+        "summary": "Restore a retained version and its matching database",
+        "description": "Always replaces current financial data with the matching historical finance.db snapshot. Refuses a missing/invalid snapshot even if the current database seems compatible. Keep current platform.conf. Full automatic pre-restore backup is mandatory; failure attempts recovery to the captured state. Prior running/stopped state is preserved. Optionally download the current full application package first.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackRequest"
+              },
+              "example": {
+                "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "confirmed": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "Rollback complete."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/replace-database": {
+      "post": {
+        "operationId": "ReplaceDatabase",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Replace the entire current database",
+        "description": "Validate a database candidate, make a mandatory full backup, and replace the actual finance.db with no stale SQLite sidecars. A running NPF is stopped/restarted even when restart is false; an already stopped NPF stays stopped unless restart is true. On failed startup, restore the previous database/state.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatabaseReplacement"
+              },
+              "example": {
+                "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "confirmed": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "Database replaced."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/replace-configuration": {
+      "post": {
+        "operationId": "ReplaceConfiguration",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Replace platform.conf with an explicit restart choice",
+        "description": "Back up current configuration (or its absence) and the complete database. restart=false preserves the running/stopped state and reports configuration pending until next start; restart=true restarts or starts NPF. Failed elected startup restores the previous state.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigurationReplacement"
+              },
+              "example": {
+                "id": "cccccccccccccccccccccccccccccccc",
+                "confirmed": true,
+                "restart": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "Configuration replaced. Changes take effect on next start/restart."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/replace-files": {
+      "post": {
+        "operationId": "ReplaceFiles",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Apply either or both files with one restart",
+        "description": "Upload selected inputs separately with the stage endpoints, then send their IDs together. Validate every selected candidate before changing either file, make one full backup, apply together, and restart/start NPF once. Restore previous database/configuration if startup fails. There is no keep-stopped/no-restart option for this combined action.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CombinedReplacement"
+              },
+              "example": {
+                "database": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "configuration": "cccccccccccccccccccccccccccccccc",
+                "confirmed": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "Files replaced. No Part Finance restarted."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    },
+    "/api/action/delete": {
+      "post": {
+        "operationId": "deleteRetainedItem",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Permanently delete a staged upload or recovery copy",
+        "description": "category is staged or recovery, never history. Refuses deletion during unresolved or deferred update recovery. Successfully applied candidates are already consumed. Success currently returns the previous human-readable operation result, so use HTTP status and refreshed status lists to verify deletion.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContentLength"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteRequest"
+              },
+              "example": {
+                "category": "staged",
+                "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                },
+                "example": {
+                  "result": "NPF running."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "409": {
+            "$ref": "#/components/responses/Busy"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque",
+        "description": "Session token returned by login. Not HTTP Basic and not a JWT."
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "npf_session",
+        "description": "Browser session cookie set by login. POST additionally requires csrfToken."
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token",
+        "description": "Required for cookie-authenticated POST. Not required for bearer authentication."
+      }
+    },
+    "parameters": {
+      "ContentLength": {
+        "name": "Content-Length",
+        "in": "header",
+        "required": true,
+        "description": "Exactly one decimal byte count is required on every POST. HTTP clients normally generate it automatically; do not use chunked Transfer-Encoding.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "schemas": {
+      "Identifier": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{32}$",
+        "description": "Opaque item ID, not an application version string.",
+        "examples": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "ActionResult": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Human-readable last operation result; do not parse its wording. Delete currently returns the previous result text."
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 8,
+            "maxLength": 128,
+            "writeOnly": true,
+            "description": "The manager administrator password, independent of NPF user passwords."
+          }
+        },
+        "required": [
+          "password"
+        ]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Opaque bearer token; not a JWT."
+          },
+          "csrf": {
+            "type": "string",
+            "description": "CSRF token required with the session cookie on POST requests."
+          },
+          "expires_in": {
+            "type": "integer",
+            "const": 3600
+          }
+        },
+        "required": [
+          "token",
+          "csrf",
+          "expires_in"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "csrf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "csrf"
+        ]
+      },
+      "EmptyRequest": {
+        "type": "object",
+        "properties": {},
+        "description": "Send a JSON object, normally {}. Unrecognized fields are ignored; the shared parser still type-checks recognized boolean fields."
+      },
+      "Version": {
+        "type": "object",
+        "properties": {
+          "applicationVersion": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "minimum": 22
+          },
+          "time": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "description": "Unix timestamp in seconds; fractional seconds are possible."
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "origin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "applicationVersion",
+          "schemaVersion",
+          "time",
+          "source_sha256",
+          "origin"
+        ]
+      },
+      "HistoryItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Version"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "snapshot": {
+                "type": "boolean",
+                "description": "Whether the matching finance.db backup exists."
+              },
+              "snapshot_time": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Unix time of the matching database backup, or null if unavailable."
+              }
+            },
+            "required": [
+              "id",
+              "snapshot",
+              "snapshot_time"
+            ]
+          }
+        ]
+      },
+      "StagedItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "application",
+              "database",
+              "configuration"
+            ]
+          },
+          "time": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "description": "Unix timestamp in seconds; fractional seconds are possible."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Hash of uploaded bytes. For a local upload it does not authenticate the publisher."
+          },
+          "origin": {
+            "type": "string"
+          },
+          "applicationVersion": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer"
+          },
+          "schema": {
+            "type": "integer",
+            "description": "Database user_version before candidate validation; database stages only."
+          },
+          "owner": {
+            "type": "boolean",
+            "description": "Whether the database has an Owner; database stages only."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "time",
+          "sha256",
+          "origin"
+        ],
+        "description": "Application stages additionally include applicationVersion/schemaVersion. Database stages include schema/owner. Configuration stages have only the common fields."
+      },
+      "RecoveryItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string",
+            "const": "recovery"
+          },
+          "time": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "description": "Unix timestamp in seconds; fractional seconds are possible."
+          },
+          "active": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Release ID captured in this recovery copy."
+          },
+          "database": {
+            "type": "boolean",
+            "description": "True for all new backups; legacy records may be false."
+          },
+          "configuration": {
+            "type": "boolean",
+            "description": "Whether platform.conf existed at capture time."
+          },
+          "stopped": {
+            "type": "boolean"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "pending_configuration": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "time",
+          "active",
+          "database",
+          "configuration",
+          "stopped",
+          "history",
+          "pending_configuration"
+        ]
+      },
+      "Status": {
+        "type": "object",
+        "properties": {
+          "manager_version": {
+            "type": "string",
+            "examples": [
+              "26.11"
+            ]
+          },
+          "npf": {
+            "type": "string",
+            "enum": [
+              "busy",
+              "running",
+              "starting",
+              "failed",
+              "stopped"
+            ]
+          },
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Executing manager action, or null. Upload/download locks do not necessarily set this field."
+          },
+          "active": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Current release ID."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Version"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pending_configuration": {
+            "type": "boolean"
+          },
+          "restart_attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryItem"
+            },
+            "description": "Normally at most two previous verified releases; deferred startup verification can temporarily retain more."
+          },
+          "staged": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StagedItem"
+            }
+          },
+          "recovery": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryItem"
+            }
+          }
+        },
+        "required": [
+          "manager_version",
+          "npf",
+          "operation",
+          "active",
+          "version",
+          "result",
+          "pending_configuration",
+          "restart_attempts",
+          "history",
+          "staged",
+          "recovery"
+        ]
+      },
+      "ApplyRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "snapshot": {
+            "type": "boolean",
+            "const": true,
+            "default": true,
+            "description": "Optional compatibility field. Full database backup is mandatory; false is rejected."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "RollbackRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "Explicit consent to replace current financial data with the matching historical backup."
+          },
+          "restore_database": {
+            "type": "boolean",
+            "const": true,
+            "default": true,
+            "description": "Optional compatibility field. Keeping the current database is not supported; false is rejected."
+          }
+        },
+        "required": [
+          "id",
+          "confirmed"
+        ]
+      },
+      "DatabaseReplacement": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "const": true
+          },
+          "restart": {
+            "type": "boolean",
+            "default": false,
+            "description": "True also starts NPF if stopped. False still restarts a previously running NPF to replace the database safely; otherwise preserves stopped state."
+          }
+        },
+        "required": [
+          "id",
+          "confirmed"
+        ]
+      },
+      "ConfigurationReplacement": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "const": true
+          },
+          "restart": {
+            "type": "boolean",
+            "description": "Required explicit choice. False saves for the next start; true restarts or starts NPF."
+          }
+        },
+        "required": [
+          "id",
+          "confirmed",
+          "restart"
+        ]
+      },
+      "CombinedReplacement": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "confirmed"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "database"
+            ]
+          },
+          {
+            "required": [
+              "configuration"
+            ]
+          }
+        ],
+        "description": "Select at least one staged file. Both are validated before mutation, backed up together and applied with one restart/start."
+      },
+      "DeleteRequest": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "staged",
+              "recovery"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "required": [
+          "category",
+          "id"
+        ],
+        "description": "Deletion is permanent. There is no separate confirmed field for this endpoint; submitting the request is the explicit deletion action."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Validation, confirmation, schema compatibility, recovery-state or request framing error. Downloads also use 400 when another operation is busy.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Another operation is busy."
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, expired, reset-invalidated or unknown session; invalid password; or missing/incorrect cookie CSRF token.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Sign in required."
+            }
+          }
+        }
+      },
+      "Busy": {
+        "description": "A POST operation could not acquire the operation lock. Retry after the current operation finishes; there is no Retry-After header.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Another operation is busy. Retry when it finishes."
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Requested resource does not exist. Configuration download uses 404 when platform.conf is absent.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "No runtime platform.conf exists."
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Unexpected I/O, dependency or server failure. Preserve recovery files and inspect private logs. Some missing request fields currently surface as 500 rather than 400.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Operation failed; preserve recovery files. Check private logs and available storage."
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Login attempt limit reached. Retry after attempts age out of the ten-minute window; no Retry-After header is emitted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Too many login attempts. Retry in ten minutes."
+            }
+          }
+        }
+      }
+    }
+  }
+}

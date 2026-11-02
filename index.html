@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NPF Server Manager</title><style>
+body { background: white; color: black; margin: 1.5em; max-width: 55em; }
+form, p { margin: 1em 0; }
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { text-align: left; padding: .4em; vertical-align: top; border: 1px solid #999; }
+input { max-width: 100%; }
+#versions { overflow-x: auto; }
+label { display: inline-block; margin: .2em 0; }
+</style></head>
+<body>
+<h1>NPF Server Manager</h1><p>Version {{MANAGER_VERSION}}</p>
+<form id="login"><label>Administrator password <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" required></label> <button>Sign in</button></form>
+<p id="message" role="status" aria-live="polite"></p>
+<main id="controls" hidden>
+<p><button id="logout">Sign out</button> <button id="refresh">Refresh status</button></p>
+<h2>No Part Finance</h2>
+<p id="status"></p><button id="start">Start NPF</button> <button id="stop">Stop NPF</button> <button id="restart-server">Restart NPF</button>
+<div id="versions"></div>
+<form id="application-upload">
+<label>Application ZIP <input type="file" required accept=".zip"></label><br>
+<button>Upload update</button> <button id="github" type="button">Update from GitHub</button>
+</form>
+<p>Updates keep the current finance.db and platform.conf. Backups always include finance.db. Up to two previous versions are kept for rollback.</p>
+<h2>Downloads</h2>
+<p><a href="/api/download/application">Download full application package</a> (includes the complete finance.db and current platform.conf)</p>
+<p><a href="/api/download/configuration">Download platform.conf</a></p>
+<p><a href="/api/download/database">Download finance.db</a></p>
+<h2>Uploads</h2>
+<form id="files-upload">
+<p><label>New platform.conf <input id="configuration-file" type="file"></label></p>
+<p><label>New finance.db <input id="database-file" type="file" accept=".db"></label></p>
+<p>Choose either file or both.</p>
+<button>Upload and restart No Part Finance</button>
+</form>
+<p>Existing files are backed up before replacement. finance.db contains all ledgers, password hashes and integration credentials; platform.conf may contain SMTP credentials.</p>
+</main>
+<dialog id="restore-dialog" aria-labelledby="restore-title">
+<h2 id="restore-title">Restore this version</h2>
+<p id="restore-description"></p>
+<p>This restores the application and its matching finance.db backup. Financial data and credentials added since that backup will be replaced. Current platform.conf stays unchanged.</p>
+<p><a href="/api/download/application">Download current full application package</a> (includes the complete current finance.db)</p>
+<p>The current application, database and configuration will also be backed up automatically before restoring.</p>
+<button id="confirm-restore">Confirm restore</button> <button id="cancel-restore">Cancel</button>
+</dialog>
+<script>
+'use strict';
+let csrf = '', busy = false, restoreTarget = null;
+const el = id => document.getElementById(id);
+function message(text) { el('message').textContent = text; }
+async function request(path, options = {}) {
+  const response = await fetch(path, {...options, headers: {'X-CSRF-Token': csrf, ...options.headers}});
+  const value = await response.json();
+  if (!response.ok) { if (response.status === 401) signedIn(false); throw Error(value.error || 'Request failed.'); }
+  return value;
+}
+function signedIn(yes) { el('controls').hidden = !yes; el('login').hidden = yes; }
+async function run(work) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll('button').forEach(button => { button.disabled = true; });
+  try { await work(); } catch (error) { message(error.message); }
+  finally { busy = false; document.querySelectorAll('button').forEach(button => { button.disabled = button.dataset.unavailable === 'true'; }); }
+}
+function action(name, values = {}) {
+  return request('/api/action/' + name, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(values)});
+}
+async function refresh() {
+  const value = await request('/api/status');
+  el('status').textContent = 'Status: ' + value.npf + (value.pending_configuration ? '. Configuration changes pending restart.' : '');
+  const table = document.createElement('table');
+  const head = document.createElement('tr');
+  for (const text of ['Version', 'State', 'Rollback']) { const cell = document.createElement('th'); cell.scope = 'col'; cell.textContent = text; head.append(cell); }
+  table.append(head);
+  const rows = [{...value.version, current: true}, ...value.history.slice(0, 2)];
+  for (const item of rows) {
+    const row = document.createElement('tr');
+    for (const text of [item.applicationVersion || 'None installed', item.current ? 'Current' : 'Previous']) { const cell = document.createElement('td'); cell.textContent = text; row.append(cell); }
+    const cell = document.createElement('td');
+    if (!item.current) {
+      const button = document.createElement('button'); button.textContent = 'Restore this version…';
+      button.dataset.unavailable = String(!item.snapshot); button.disabled = busy || !item.snapshot;
+      if (!item.snapshot) { const note = document.createElement('span'); note.textContent = 'Matching database backup unavailable. '; cell.append(note); }
+      button.onclick = () => {
+        restoreTarget = item.id;
+        el('restore-description').textContent = 'NPF version: ' + item.applicationVersion + '. Database backup: ' + (item.snapshot_time ? new Date(item.snapshot_time * 1000).toLocaleString() : 'date unknown') + '.';
+        el('restore-dialog').showModal();
+      }; cell.append(button);
+    } else { cell.textContent = '—'; }
+    row.append(cell); table.append(row);
+  }
+  el('versions').replaceChildren(table);
+}
+el('cancel-restore').onclick = () => el('restore-dialog').close();
+el('restore-dialog').onclose = () => { restoreTarget = null; };
+el('confirm-restore').onclick = () => {
+  const id = restoreTarget;
+  if (!id) return;
+  run(async () => {
+    el('restore-dialog').close();
+    message('Restoring application and database…');
+    const result = await action('rollback', {id, confirmed: true});
+    await refresh(); message(result.result || 'Restore complete.');
+  });
+};
+async function applyUpload(item, kind) {
+  const prompts = {
+    application: 'Install NPF ' + (item.applicationVersion || 'from this ZIP') + '? NPF will be stopped during the update.',
+    database: 'Replace the entire finance.db, including all financial data and credentials? The current database will be backed up first. No Part Finance will restart.',
+    configuration: 'Replace platform.conf? The current configuration and full database will be backed up first. No Part Finance will restart.'
+  };
+  if (!confirm(prompts[kind])) {
+    await action('delete', {category: 'staged', id: item.id});
+    message('Cancelled. Current files are unchanged.'); return;
+  }
+  message('Applying…');
+  const name = {application: 'apply', database: 'replace-database', configuration: 'replace-configuration'}[kind];
+  const result = await action(name, {id: item.id, confirmed: true, restart: true});
+  await refresh(); message(result.result || 'Complete.');
+}
+el('login').onsubmit = event => { event.preventDefault(); run(async () => {
+  const value = await request('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: el('password').value})});
+  el('password').value = ''; csrf = value.csrf; signedIn(true); await refresh(); message('Signed in.');
+}); };
+el('logout').onclick = () => run(async () => { await request('/api/logout', {method: 'POST', body: '{}'}); csrf = ''; signedIn(false); message('Signed out.'); });
+for (const name of ['start', 'stop']) el(name).onclick = () => run(async () => { message('Working…'); const result = await action(name); await refresh(); message(result.result || 'Complete.'); });
+el('restart-server').onclick = () => run(async () => { message('Restarting…'); const result = await action('restart'); await refresh(); message(result.result || 'NPF restarted.'); });
+el('github').onclick = () => run(async () => { message('Downloading and validating…'); const item = await action('github'); await applyUpload(item, 'application'); });
+el('refresh').onclick = () => run(refresh);
+el('application-upload').onsubmit = event => {
+  event.preventDefault(); const input = event.target.querySelector('input[type=file]');
+  run(async () => {
+    message('Uploading and validating…');
+    const item = await request('/api/stage/application', {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: input.files[0]});
+    input.value = ''; await applyUpload(item, 'application');
+  });
+};
+el('files-upload').onsubmit = event => {
+  event.preventDefault();
+  run(async () => {
+    const selected = ['configuration', 'database'].filter(kind => el(kind + '-file').files.length);
+    if (!selected.length) { message('Choose platform.conf, finance.db, or both.'); return; }
+    const values = {confirmed: true};
+    message('Uploading and validating…');
+    try {
+      for (const kind of selected) {
+        const item = await request('/api/stage/' + kind, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: el(kind + '-file').files[0]});
+        values[kind] = item.id;
+      }
+    } catch (error) {
+      for (const kind of selected) if (values[kind]) {
+        try { await action('delete', {category: 'staged', id: values[kind]}); } catch (_) { /* Live files remain unchanged. */ }
+      }
+      throw error;
+    }
+    if (!confirm('Replace ' + selected.map(kind => kind === 'database' ? 'the entire finance.db (all data and credentials)' : 'platform.conf').join(' and ') + '? Current files will be backed up and No Part Finance will restart once.')) {
+      for (const kind of selected) await action('delete', {category: 'staged', id: values[kind]});
+      message('Cancelled. Current files are unchanged.'); return;
+    }
+    message('Applying…');
+    const result = await action('replace-files', values);
+    for (const kind of selected) el(kind + '-file').value = '';
+    await refresh(); message(result.result);
+  });
+};
+(async () => { try { const session = await request('/api/session'); csrf = session.csrf; signedIn(true); await refresh(); } catch (_) { signedIn(false); } })();
+</script>
+</body></html>

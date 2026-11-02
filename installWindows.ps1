@@ -17,7 +17,8 @@ if ($args.Count -gt 0 -and $args[0] -eq 'uninstall') {
 function Test-PythonRuntime([string]$Executable, [switch]$WithPip) {
     if ([string]::IsNullOrWhiteSpace($Executable)) { return $false }
     if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { return $false }
-    $probe = 'import struct, sys; sys.exit(0 if sys.version_info >= (3, 11) and struct.calcsize("P") == 8 else 1)'
+    # Windows PowerShell 5.1 strips embedded quotes in native arguments.
+    $probe = 'import struct, sys; sys.exit(0 if sys.version_info >= (3, 11) and struct.calcsize(chr(80)) == 8 else 1)'
     if ($WithPip) { $probe = 'import pip; ' + $probe }
     try {
         & $Executable -c $probe *> $null
@@ -30,7 +31,7 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
     if ($LASTEXITCODE -ne 0 -or $python -like '*\Users\*' -or -not (Test-PythonRuntime $python)) { $python = $null }
 }
 if (-not $python) {
-    $target = Join-Path $env:ProgramFiles 'NPF\Python312'
+    $target = Join-Path $env:ProgramFiles 'NPF-Server-Manager\Python312'
     $python = Join-Path $target 'python.exe'
     if (-not (Test-Path $python)) {
         $download = Join-Path $env:TEMP 'npf-python-3.12.10-amd64.exe'
@@ -45,7 +46,7 @@ if (-not $python) {
 if (-not (Test-PythonRuntime $python)) {
     throw "Python cannot start as a supported x64 interpreter: $python. Repair that Python installation and rerun this installer."
 }
-$bootstrap = Join-Path $env:ProgramData 'NPF-InstallerRuntime'
+$bootstrap = Join-Path $env:ProgramData 'NPF-Server-Manager-InstallerRuntime'
 $runtimePython = Join-Path $bootstrap 'Scripts\python.exe'
 if (-not (Test-PythonRuntime $runtimePython -WithPip)) {
     # A leftover venv executable can exist even though its base Python was removed or moved.

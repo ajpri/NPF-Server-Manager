@@ -1,6 +1,6 @@
 # NPF Server Manager CLI — 26.11
 
-This reference documents the implemented commands in `cli.py` and `installer.py`. See [the OpenAPI document](../openapi.json) for HTTPS request/response schemas and [README](../README.md) for the project overview. Windows commands are implemented; Windows runtime acceptance remains pending manual testing.
+This reference documents the release 26.11 commands in `cli.py` and `installer.py`. See [the OpenAPI document](../openapi.json) for HTTPS request/response schemas, [README](../README.md) for the project overview and [Windows results](WINDOWS-TEST-RESULTS.md) for tested Windows 11 coverage.
 
 ## Command entry points
 
@@ -11,12 +11,19 @@ sudo npf-manager --help
 sudo npf-manager status
 ```
 
-Windows installation creates `npf-manager.bat` in the application root, by default `C:\Program Files\NPF`. In PowerShell:
+Windows installation creates `npf-manager.bat` in the application root, by default `C:\Program Files\NPF-Server-Manager`. In PowerShell:
 
 ```powershell
-& 'C:\Program Files\NPF\npf-manager.bat' --help
-& 'C:\Program Files\NPF\npf-manager.bat' status
+& 'C:\Program Files\NPF-Server-Manager\npf-manager.bat' --help
+& 'C:\Program Files\NPF-Server-Manager\npf-manager.bat' status
 ```
+
+New Windows installs use `C:\ProgramData\NPF-Server-Manager` for persistent data,
+`C:\Program Files\NPF-Server-Manager\Python312` for an installer-provisioned
+Python, and `C:\ProgramData\NPF-Server-Manager-InstallerRuntime` for the bootstrap
+environment. Existing installations continue to use their registered paths;
+changing defaults does not relocate them. Uninstall also recognizes the legacy
+`NPF-InstallerRuntime` bootstrap directory for cleanup.
 
 Examples below use the Linux launcher. The subcommands and arguments are the same through the Windows launcher. Quote paths containing spaces. For a source checkout, `python3 cli.py ...` also works when its local configuration is selected correctly; source checkouts cannot perform registered installation removal directly.
 
@@ -38,7 +45,7 @@ Put global options **before** the subcommand. Put subcommand flags after its nam
 | --- | --- |
 | `-h`, `--help` | Print global help and exit. Every subcommand also accepts these flags. |
 | `--version` | Print the manager version, currently `26.11`, and exit. |
-| `--data DIRECTORY` | Select local manager settings/data. Default comes from `/etc/npf-manager.json` on Linux or `%PROGRAMDATA%\NPF-Server-Manager.json` on Windows, falling back to `/var/lib/npf` or `%PROGRAMDATA%\NPF`. This is not an NPF data export destination. |
+| `--data DIRECTORY` | Select local manager settings/data. Default comes from `/etc/npf-manager.json` on Linux or `%PROGRAMDATA%\NPF-Server-Manager.json` on Windows, falling back to `/var/lib/npf` or `%PROGRAMDATA%\NPF-Server-Manager`. This is not an NPF data export destination. |
 | `--url HTTPS_URL` | Override the API base URL. Default is `https://127.0.0.1:PORT`, using the selected settings' port or `5050`. Plain HTTP is rejected. |
 | `--ca PEM_FILE` | Override the trusted certificate/CA PEM. Otherwise use the selected settings' certificate, or system trust when none is configured. Certificate identity must match the URL hostname/IP. There is no insecure TLS bypass option. |
 
@@ -218,6 +225,14 @@ Requires local root/Administrator privileges, prompts twice for a new 8–128-ch
 
 ### `uninstall [--yes]`
 
+On Windows, Control Panel → Programs and Features and Settings → Apps →
+Installed apps also list **NPF Server Manager** with its manager version and
+installation location. Uninstall requests Administrator elevation, then runs
+the same trusted installed CLI with interactive permanent-deletion confirmation.
+It never supplies `--yes`. Cancellation leaves registration and data intact.
+Successful file cleanup removes the entry; failed cleanup retains it. Installer
+reruns refresh registration. Modify and Repair are disabled.
+
 ```sh
 sudo npf-manager uninstall
 sudo sh installLinux.sh uninstall
@@ -253,8 +268,8 @@ Windows: `installWindows.bat [install|update] [OPTIONS]` or `installWindows.ps1 
 | Option | Purpose |
 | --- | --- |
 | `-h`, `--help` | Show installer parser help. The Python entry point avoids wrapper prerequisite provisioning when merely inspecting help. |
-| `--application-root DIRECTORY` | Initial application/code location; defaults `/opt/npf` or `%ProgramFiles%\NPF`. Must be a separate tree from persistent data. Existing installations reject a different application root. |
-| `--data DIRECTORY` | Persistent settings/database/backups location, discovered from the locator by default, then `/var/lib/npf` or `%PROGRAMDATA%\NPF`. Use the existing selected location on reruns. |
+| `--application-root DIRECTORY` | Initial application/code location; defaults `/opt/npf` or `%ProgramFiles%\NPF-Server-Manager`. Must be a separate tree from persistent data. Existing installations reject a different application root. |
+| `--data DIRECTORY` | Persistent settings/database/backups location, discovered from the locator by default, then `/var/lib/npf` or `%PROGRAMDATA%\NPF-Server-Manager`. Use the existing selected location on reruns. |
 | `--package ZIP` | Local initial NPF package when not downloading the stable GitHub release. Does not update NPF on a completed-installation rerun. |
 | `--adopt DIRECTORY` | Copy an existing initialized NPF installation into the managed layout. Preserve original files. |
 | `--source-database FILE` | Actual source database for adoption; defaults to `ADOPT_DIRECTORY/finance.db`. |

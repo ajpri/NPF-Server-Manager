@@ -1,10 +1,10 @@
 # Version 26.11 — Linux validation
 
-Recorded on 2026-11-01 (America/Chicago). Guest logs use UTC, so some entries are dated November 2. Windows 11 runtime testing is pending the user's [manual checklist](WINDOWS-CHECKLIST.md).
+Linux results recorded on 2026-11-01 (America/Chicago). Guest logs use UTC, so some entries are dated November 2. Subsequent actual Windows 11 verification is recorded separately in [Windows results](WINDOWS-TEST-RESULTS.md).
 
 ## Environment
 
-All runtime tests ran in disposable x64 QEMU guests on the separate SSH-accessible Linux test computer. No application, service, prerequisite installation, VM, or runtime test was run on the local development computer.
+All Linux runtime tests in this report ran in disposable x64 QEMU guests on the separate SSH-accessible Linux test computer. No Linux application, service, prerequisite installation, VM, or runtime test was run on the local development computer.
 
 Portable QEMU 8.2.2 was downloaded as distribution packages and extracted within the approved remote lab directory. Host packages/services/firewall were not modified. Each guest used KVM, four virtual CPUs, 4 GiB RAM, a 24 GiB copy-on-write disk, and user-mode networking with loopback-only host forwarding. The host also acted as a separate HTTPS client to the guest through forwarding, with certificate verification enabled.
 
@@ -109,7 +109,7 @@ On 2026-11-02, openapi.json passed formal OpenAPI 3.1 validation in the remote d
 
 ## Validation boundaries
 
-Windows 11 installers and service integration are present but have **not been run**. Windows acceptance remains pending manual testing. Other Debian/Fedora derivatives and older OS releases were not separately tested.
+Windows 11 was tested separately after this Linux run; see [Windows results](WINDOWS-TEST-RESULTS.md) for its actual coverage and remaining scenarios. Other Debian/Fedora derivatives and older OS releases were not separately tested.
 
 The upstream integration contract was exercised against v26.10.30. The tests do not establish compatibility with every historical NPF schema or unknown future release. Migration/failure handling uses upstream initialization on disposable copies plus controlled fault fixtures; this is not a historical-release upgrade matrix.
 

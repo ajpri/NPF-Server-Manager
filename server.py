@@ -24,7 +24,10 @@ class HTTPServer(ThreadingHTTPServer):
 
     def __init__(self, manager):
         self.manager = manager
-        self.page = (HERE / "index.html").read_bytes().replace(b"{{MANAGER_VERSION}}", VERSION.encode())
+        # HTML parsing normalizes CRLF/CR to LF before CSP checks inline blocks.
+        # Git commonly checks this file out with CRLF on Windows.
+        self.page = (HERE / "index.html").read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        self.page = self.page.replace(b"{{MANAGER_VERSION}}", VERSION.encode())
         scripts = re.findall(rb"<script>(.*?)</script>", self.page, re.S)
         styles = re.findall(rb"<style>(.*?)</style>", self.page, re.S)
         def hashes(blocks):

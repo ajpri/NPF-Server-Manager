@@ -1,6 +1,6 @@
 # NPF Server Manager 26.11
 
-Installer, updater and local service supervisor for No Part Finance. One x64 NPF installation per machine. Targets Debian/Fedora families with systemd and Windows 11. Linux verification runs only in remote QEMU guests; Windows testing is manual and must not be inferred from Linux results.
+Installer, updater and local service supervisor for No Part Finance. One x64 NPF installation per machine. Release 26.11 has been tested on Debian 13, Fedora 44 and Windows 11 x64 build 26200. See the [release notes](CHANGELOG.md) and platform results below for tested coverage and limitations.
 
 ## Documentation
 
@@ -17,7 +17,7 @@ Download/extract this manager project, then run:
 
 On an elevated Windows 11 terminal, run `installWindows.bat`. The scripts bootstrap prerequisites. Installation asks for paths, a manager administrator password, HTTPS certificate mode and NPF Owner setup. Owner creation may be skipped: both services still start, and the authenticated manager UI warns that NPF Owner setup is required before signing in to NPF. Rerun the same installer with the same data path to complete it later. The two passwords are independent. Python 3.11+ is required by the manager; NPF has its own release dependencies. Debian 13 and Fedora 44 are the initial Linux verification targets. Other related distributions require separate verification; immutable Fedora variants are not supported by the dnf-based installer.
 
-Defaults: `/opt/npf` and `/var/lib/npf` on Linux; `C:\Program Files\NPF` and `C:\ProgramData\NPF` on Windows. Management: `https://SERVER:5050`. Include the server LAN DNS name/IP in certificate identities when generating a certificate. A self-signed certificate is retained across restarts and lasts 365 days. Trust its public PEM on clients; never share its private key. Supplied certificate and key must be PEM; encrypted keys requiring interactive service startup are unsupported. Renew/replace through the installer (`--renew-certificate` or `--certificate FILE --private-key FILE`); this restarts the manager service. No plaintext fallback.
+Defaults: `/opt/npf` and `/var/lib/npf` on Linux; `C:\Program Files\NPF-Server-Manager` and `C:\ProgramData\NPF-Server-Manager` on Windows. Management: `https://SERVER:5050`. Include the server LAN DNS name/IP in certificate identities when generating a certificate. A self-signed certificate is retained across restarts and lasts 365 days. Trust its public PEM on clients; never share its private key. Supplied certificate and key must be PEM; encrypted keys requiring interactive service startup are unsupported. Renew/replace through the installer (`--renew-certificate` or `--certificate FILE --private-key FILE`); this restarts the manager service. No plaintext fallback.
 
 ```sh
 ./installLinux.sh --application-root /opt/npf --data /var/lib/npf \
@@ -91,7 +91,7 @@ Mutations are synchronous; clients should allow up to 15 minutes for dependency 
 
 The application root contains root-owned `manager/` code and service-owned `releases/ID/{app,venv,release.json,source.zip}`. Private data contains settings/auth, certificates, live database, canonical `platform.conf`, state/operation records, staged files, version-associated history, independent recovery copies and temporary exports. Configuration is copied beside the selected `app.py`; startup formatting is synchronized back. NPF's logs remain beside each release; manager-captured NPF output rotates at 1 MiB with three copies.
 
-Windows uses a pywin32 service-aware Python entry point and a kill-on-close job for child containment. Controlled NPF shutdown uses a private stop signal file before a bounded forced-stop fallback. Windows runtime results remain pending manual testing.
+Windows uses a pywin32 service-aware Python entry point and a kill-on-close job for child containment. Controlled NPF shutdown uses a private stop signal file before a bounded forced-stop fallback. [Windows test results](docs/WINDOWS-TEST-RESULTS.md) cover installation recovery, service startup, HTTPS/login, password reset, runtime encoding, path relocation and installed-app registration, with remaining scenarios identified explicitly.
 
 Keep three verified installed versions (current plus two prior). Every backup includes a full finance.db snapshot, including configuration-replacement backups. There is no snapshot opt-out. Old snapshots prune with their versions only after successful update. Independent database/configuration/rollback recovery copies remain until deleted. Failed updates retain staged inputs. Updates applied while stopped await next startup verification before pruning.
 
@@ -101,6 +101,13 @@ If startup fails during update/replacement/rollback, the manager attempts the sp
 
 ## Uninstall
 
+Windows installations also appear as **NPF Server Manager** in Control Panel's
+Programs and Features and Settings' Installed apps. Choose Uninstall to open an
+elevated confirmation window showing the application/data paths. Permanent
+deletion includes NPF financial data and backups; cancellation defaults to No.
+Installer reruns refresh this entry. Modify/Repair are not offered, and the entry
+is removed after successful file cleanup.
+
 Run `sudo npf-manager uninstall` on Linux, or the installed `npf-manager.bat uninstall` from an Administrator terminal on Windows. The installers also accept `sudo sh installLinux.sh uninstall` and `installWindows.bat uninstall` (or `installWindows.ps1 uninstall` in an Administrator PowerShell). Append `--yes` for unattended deletion. These commands use the installed cleanup routine without downloading or installing prerequisites. `python installer.py uninstall` is supported too. Confirm the displayed application/data paths and permanent deletion; the default answer is No. Use `uninstall --yes` for unattended deletion.
 
 Uninstall stops/removes the service and deletes managed NPF releases, manager code/runtime/launcher, finance.db, platform.conf, authentication, certificates, staged files, version history and all backups. Download any full package you want to keep first. Adopted original installations and unrelated files in a custom application directory are preserved. Shared OS prerequisites (such as system Python) remain installed. Linux removes the service account only when installation records show this manager created it. Windows also removes the installer bootstrap environment; an OS helper finishes deleting locked files after the CLI exits, retries temporary locks, and writes any failure to the displayed temporary log path. Uninstall is privileged and local only, does not need the manager password, and is never available over HTTP. Older installations must rerun the installer once to register trusted cleanup paths.
@@ -109,11 +116,13 @@ Uninstall stops/removes the service and deletes managed NPF releases, manager co
 
 The application has six Python modules: `manager.py` for process/data operations, `server.py` for HTTPS/authentication, `cli.py` for commands, `installer.py` for installation and removal, `npf_bridge.py` for running NPF in its own environment, and `windows_service.py` for Windows Service integration. `index.html` contains the complete UI.
 
-Development checks live only under `tests/`: one regression suite, one acceptance runner with named phases, and one browser/screenshot helper. They are not installed with the application. See [the remote testing guide](tests/README.md) for commands and fixture requirements.
+Development checks live only under `tests/`: one Linux regression suite, one acceptance runner with named phases, one browser/screenshot helper, and a focused manual Windows smoke check. They are not installed with the application. See [the testing guide](tests/README.md) for commands and fixture requirements.
 
 ## Verification
 
-See [SPEC.md](SPEC.md) for acceptance requirements, [Linux results](docs/TEST-RESULTS.md) for recorded validation, and [Windows checklist](docs/WINDOWS-CHECKLIST.md) for pending manual testing. [Desktop screenshot](docs/screenshots/manager-26.11.png) and [mobile screenshot](docs/screenshots/manager-26.11-mobile.png) show the actual single-file UI with synthetic test state. Do not run tests on the local development computer. Run `python3 -m unittest discover -s tests -v` only inside disposable remote Debian/Fedora QEMU guests, with `NPF_TEST_ZIP` pointing at a public application-only release package. Runtime verification uses synthetic financial data only. Remote host/SSH details are deliberately excluded from this project documentation.
+See [SPEC.md](SPEC.md) for the release specification, [Linux results](docs/TEST-RESULTS.md) and [Windows results](docs/WINDOWS-TEST-RESULTS.md) for recorded verification, and [tests/README.md](tests/README.md) for test commands. The Windows results replace the earlier pending checklist. [Desktop screenshot](docs/screenshots/manager-26.11.png) and [mobile screenshot](docs/screenshots/manager-26.11-mobile.png) show the actual single-file UI with synthetic test state.
+
+Run the Linux regression/acceptance/browser helpers only inside disposable remote Debian/Fedora QEMU guests, with `NPF_TEST_ZIP` selecting a public application-only release package. The separate Windows smoke helper runs in an Administrator terminal using synthetic temporary files and a temporary registry entry; it does not uninstall the running installation. Destructive acceptance requires disposable synthetic installations. Machine/account details, credentials, financial data and raw local transcripts are excluded from published test evidence.
 
 Runtime release numbers come from `VERSION`, including CLI output, the web page and service descriptions. When preparing a release, update that file and the release-specific documentation/OpenAPI metadata together.
 
